@@ -1,0 +1,6 @@
+# No third-party dependencies.
+#
+# The agent is Python standard library only. It bundles no model weights, no
+# embeddings and no data files, and it makes no network calls at any point.
+# Nothing to install; `pip install -r requirements.txt` is a no-op and is listed
+# only so the reproduction steps are uniform.
