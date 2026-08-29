@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from submission.src import catalog as catalog_module
-from submission.src import dialogue
-from submission.src import text
+from techjam.submission.src import catalog as catalog_module
+from techjam.submission.src import dialogue
+from techjam.submission.src import text
 
 ALPHA = 0.6
 SLATE_SIZE = 10

@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from submission.src import text
+from techjam.submission.src import text
 
 # A candidate must account for at least this much of a bucket name's weight
 # before it is worth considering. Low enough that naming only the generic

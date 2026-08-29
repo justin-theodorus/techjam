@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from submission.src import slots
+from techjam.submission.src import slots
 
 
 def taxonomy(rows: list[tuple[dict, bool]]) -> slots.Taxonomy:

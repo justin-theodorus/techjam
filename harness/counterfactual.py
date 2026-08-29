@@ -27,9 +27,9 @@ import random
 from pathlib import Path
 from time import perf_counter
 
-from evaluator.local_evaluator import evaluate, load_jsonl
+from techjam.evaluator.local_evaluator import evaluate, load_jsonl
 
-from harness.run import catalog_index, load_agent_class, require_catalog
+from techjam.harness.run import catalog_index, load_agent_class, require_catalog
 
 SCENARIO_MIX = (("buying", 80), ("browsing", 80), ("intent_override", 30), ("boundary", 10))
 SESSION_COUNT = sum(count for _, count in SCENARIO_MIX)

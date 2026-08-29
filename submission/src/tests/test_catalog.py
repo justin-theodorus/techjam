@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from evaluator import local_evaluator
-from submission.src import catalog as catalog_module
-from submission.src.tests import fixtures
+from techjam.evaluator import local_evaluator
+from techjam.submission.src import catalog as catalog_module
+from techjam.submission.src.tests import fixtures
 
 CATALOG_PATH = Path("data/catalog.jsonl")
 

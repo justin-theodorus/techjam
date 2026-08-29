@@ -17,7 +17,7 @@ to exercise it fails the suite.
 
 from __future__ import annotations
 
-from harness import session_axes
+from techjam.harness import session_axes
 
 Recipe = session_axes.Recipe
 

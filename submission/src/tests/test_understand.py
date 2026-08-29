@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from submission.src import category
-from submission.src import dialogue
-from submission.src import understand
+from techjam.submission.src import category
+from techjam.submission.src import dialogue
+from techjam.submission.src import understand
 
 RESOLVER = category.build(
     ("Shoes Sneakers", "St. John Dresses", "Novelty Clothing", "Tops Blouses")

@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import tempfile
 
-from evaluator.local_evaluator import catalog_index, evaluate, metric_summary, normalize_recommendations
+from techjam.evaluator.local_evaluator import catalog_index, evaluate, metric_summary, normalize_recommendations
 
 
 class EchoTargetAgent:

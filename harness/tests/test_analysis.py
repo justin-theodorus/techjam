@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from evaluator.local_evaluator import catalog_index, evaluate
-from harness.analysis import analyze, health_summary, latency_summary
-from harness.record import RecordingAgent
-from harness.tests.fixtures import ConstantAgent, sample, write_catalog
+from techjam.evaluator.local_evaluator import catalog_index, evaluate
+from techjam.harness.analysis import analyze, health_summary, latency_summary
+from techjam.harness.record import RecordingAgent
+from techjam.harness.tests.fixtures import ConstantAgent, sample, write_catalog
 
 
 def run(agent, samples):

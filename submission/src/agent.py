@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from submission.src import catalog as catalog_module
-from submission.src import dialogue
-from submission.src import llm
-from submission.src import probe
-from submission.src import ranking
-from submission.src import response
-from submission.src import routing
-from submission.src import text
-from submission.src import understand
+from techjam.submission.src import catalog as catalog_module
+from techjam.submission.src import dialogue
+from techjam.submission.src import llm
+from techjam.submission.src import probe
+from techjam.submission.src import ranking
+from techjam.submission.src import response
+from techjam.submission.src import routing
+from techjam.submission.src import text
+from techjam.submission.src import understand
 
 
 class Agent:

@@ -10,12 +10,12 @@ import sys
 import tempfile
 import unittest
 
-from evaluator import local_evaluator
+from techjam.evaluator import local_evaluator
 
-from harness import session_axes
-from harness import session_sets
-from harness import sessions
-from harness.tests import fixtures
+from techjam.harness import session_axes
+from techjam.harness import session_sets
+from techjam.harness import sessions
+from techjam.harness.tests import fixtures
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "docs" / "agent_api_contract.json"

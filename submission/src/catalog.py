@@ -9,12 +9,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from submission.src import bm25
-from submission.src import category as category_module
-from submission.src import dense as dense_module
-from submission.src import phrases as phrases_module
-from submission.src import slots as slots_module
-from submission.src import text
+from techjam.submission.src import bm25
+from techjam.submission.src import category as category_module
+from techjam.submission.src import dense as dense_module
+from techjam.submission.src import phrases as phrases_module
+from techjam.submission.src import slots as slots_module
+from techjam.submission.src import text
 
 FALLBACK_CATEGORY = "clothing item"
 FALLBACK_POOL_SIZE = 100

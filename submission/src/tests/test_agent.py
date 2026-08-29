@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from submission.src import agent as agent_module
-from submission.src import probe
-from submission.src import ranking
-from submission.src.tests import fixtures
+from techjam.submission.src import agent as agent_module
+from techjam.submission.src import probe
+from techjam.submission.src import ranking
+from techjam.submission.src.tests import fixtures
 
 OPENING = f"I'm looking for {fixtures.SNEAKER_BUCKET}, but I'm still exploring."
 

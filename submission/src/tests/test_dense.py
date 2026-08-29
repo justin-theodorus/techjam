@@ -7,8 +7,8 @@ import struct
 import tempfile
 import unittest
 
-from submission.src import dense
-from submission.src import text
+from techjam.submission.src import dense
+from techjam.submission.src import text
 
 ASSET = dense.DEFAULT_ASSET
 
@@ -159,9 +159,9 @@ class ShippedNeutralityTest(unittest.TestCase):
     """The tier is bundled and switched off, and nothing reported uses it."""
 
     def test_the_blend_is_unchanged_at_the_shipped_weight(self) -> None:
-        from submission.src import catalog as catalog_module
-        from submission.src import dialogue
-        from submission.src import ranking
+        from techjam.submission.src import catalog as catalog_module
+        from techjam.submission.src import dialogue
+        from techjam.submission.src import ranking
 
         if not ASSET.exists():
             self.skipTest("dense asset not built")
@@ -183,9 +183,9 @@ class ShippedNeutralityTest(unittest.TestCase):
         Findings 3.27 lost a whole sweep to a constant bound in a default
         argument, and 6U repeated it once before this test existed.
         """
-        from submission.src import catalog as catalog_module
-        from submission.src import dialogue
-        from submission.src import ranking
+        from techjam.submission.src import catalog as catalog_module
+        from techjam.submission.src import dialogue
+        from techjam.submission.src import ranking
 
         if not ASSET.exists():
             self.skipTest("dense asset not built")
@@ -201,9 +201,9 @@ class ShippedNeutralityTest(unittest.TestCase):
         self.assertNotEqual(off.indices, on.indices)
 
     def test_reach_widens_the_pool_past_the_bucket(self) -> None:
-        from submission.src import catalog as catalog_module
-        from submission.src import dialogue
-        from submission.src import ranking
+        from techjam.submission.src import catalog as catalog_module
+        from techjam.submission.src import dialogue
+        from techjam.submission.src import ranking
 
         if not ASSET.exists():
             self.skipTest("dense asset not built")

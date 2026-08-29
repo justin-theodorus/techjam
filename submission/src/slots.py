@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from submission.src import text
+from techjam.submission.src import text
 
 # The attributes a probe may ask about, ordered by how much of this catalog's
 # constraint text they account for.

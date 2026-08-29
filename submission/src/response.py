@@ -15,7 +15,7 @@ customer can catch the agent misunderstanding them.
 
 from __future__ import annotations
 
-from submission.src import dialogue
+from techjam.submission.src import dialogue
 
 # Reading a long constraint back verbatim is worse than not reading it back.
 MAX_QUOTED = 42

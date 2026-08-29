@@ -3,8 +3,8 @@ from __future__ import annotations
 import random
 import unittest
 
-from evaluator import local_evaluator
-from harness import paraphrase
+from techjam.evaluator import local_evaluator
+from techjam.harness import paraphrase
 
 
 def card(hard: list[str], soft: list[str]) -> dict:

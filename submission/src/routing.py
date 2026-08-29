@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from submission.src import dialogue
-from submission.src import ranking
+from techjam.submission.src import dialogue
+from techjam.submission.src import ranking
 
 PRECISION = "precision"
 DISCOVERY = "discovery"

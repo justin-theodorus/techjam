@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from submission.src import dialogue
-from submission.src import ranking
-from submission.src import routing
-from submission.src import slots
+from techjam.submission.src import dialogue
+from techjam.submission.src import ranking
+from techjam.submission.src import routing
+from techjam.submission.src import slots
 
 
 class RouteChoiceTest(unittest.TestCase):

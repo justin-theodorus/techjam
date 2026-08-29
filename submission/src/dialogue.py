@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from submission.src import slots as slots_module
+from techjam.submission.src import slots as slots_module
 
 UNKNOWN = "unknown"
 BUYING = "buying"

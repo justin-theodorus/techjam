@@ -6,12 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from submission.src import catalog as catalog_module
-from submission.src import phrases
-from submission.src.tests import fixtures
+from techjam.submission.src import catalog as catalog_module
+from techjam.submission.src import phrases
+from techjam.submission.src.tests import fixtures
 
 try:
-    from evaluator import local_evaluator
+    from techjam.evaluator import local_evaluator
 except ImportError:  # The submission bundle ships without organizer files.
     local_evaluator = None
 

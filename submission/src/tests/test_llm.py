@@ -8,11 +8,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from submission.src import catalog as catalog_module
-from submission.src import dialogue
-from submission.src import llm
-from submission.src import ranking
-from submission.src.tests import fixtures
+from techjam.submission.src import catalog as catalog_module
+from techjam.submission.src import dialogue
+from techjam.submission.src import llm
+from techjam.submission.src import ranking
+from techjam.submission.src.tests import fixtures
 
 
 @contextlib.contextmanager

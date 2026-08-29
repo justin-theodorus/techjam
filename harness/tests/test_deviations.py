@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from harness import deviations
-from submission.src import dialogue
-from submission.src import probe
-from submission.src import ranking
-from submission.src import slots
-from submission.src import routing
+from techjam.harness import deviations
+from techjam.submission.src import dialogue
+from techjam.submission.src import probe
+from techjam.submission.src import ranking
+from techjam.submission.src import slots
+from techjam.submission.src import routing
 
 MODULES = {"dialogue": dialogue, "probe": probe, "ranking": ranking,
            "routing": routing, "slots": slots}

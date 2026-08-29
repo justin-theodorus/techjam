@@ -25,11 +25,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
-from evaluator import local_evaluator
-from evaluator.local_evaluator import evaluate, load_jsonl
+from techjam.evaluator import local_evaluator
+from techjam.evaluator.local_evaluator import evaluate, load_jsonl
 
-from harness import record
-from harness.run import catalog_index, load_agent_class, require_catalog
+from techjam.harness import record
+from techjam.harness.run import catalog_index, load_agent_class, require_catalog
 
 
 @dataclass(frozen=True)

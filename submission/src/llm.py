@@ -33,8 +33,8 @@ import os
 from time import perf_counter
 from typing import Any, Sequence
 
-from submission.src import catalog as catalog_module
-from submission.src import dialogue
+from techjam.submission.src import catalog as catalog_module
+from techjam.submission.src import dialogue
 
 # The opt-in. Anything but this exact value leaves Tier 2 unbuilt, so a stray
 # `USE_LLM=0` or `USE_LLM=false` fails closed rather than open.

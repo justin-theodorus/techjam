@@ -17,10 +17,10 @@ import random
 import re
 from dataclasses import dataclass
 
-from evaluator import local_evaluator
+from techjam.evaluator import local_evaluator
 
-from harness import counterfactual
-from harness import paraphrase
+from techjam.harness import counterfactual
+from techjam.harness import paraphrase
 
 CROWDED_BUCKET = 300
 SPARSE_BUCKET = 20

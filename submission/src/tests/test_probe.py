@@ -6,11 +6,11 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from submission.src import catalog as catalog_module
-from submission.src import dialogue
-from submission.src import probe
-from submission.src.tests import fixtures
-from submission.src import slots
+from techjam.submission.src import catalog as catalog_module
+from techjam.submission.src import dialogue
+from techjam.submission.src import probe
+from techjam.submission.src.tests import fixtures
+from techjam.submission.src import slots
 
 
 def taxonomy(declared: dict[str, int], documents: int) -> slots.Taxonomy:

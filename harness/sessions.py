@@ -31,14 +31,14 @@ import statistics
 from pathlib import Path
 from time import perf_counter
 
-from evaluator import local_evaluator
+from techjam.evaluator import local_evaluator
 
-from harness import analysis
-from harness import counterfactual
-from harness import record
-from harness import run
-from harness import session_axes
-from harness import session_sets
+from techjam.harness import analysis
+from techjam.harness import counterfactual
+from techjam.harness import record
+from techjam.harness import run
+from techjam.harness import session_axes
+from techjam.harness import session_sets
 
 SAMPLE_PREFIX = "syn"
 

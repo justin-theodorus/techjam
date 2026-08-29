@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from harness.diff import compare
-from harness.report import technical_score
+from techjam.harness.diff import compare
+from techjam.harness.report import technical_score
 
 
 def artifact(sessions: list[dict], metrics: dict | None = None) -> dict:

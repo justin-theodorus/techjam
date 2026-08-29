@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import re
 
-from submission.src import category as category_module
-from submission.src import dialogue
-from submission.src import text
+from techjam.submission.src import category as category_module
+from techjam.submission.src import dialogue
+from techjam.submission.src import text
 
 LOOKING_PREFIX = "I'm looking for "
 EXPLORING_SUFFIX = ", but I'm still exploring."

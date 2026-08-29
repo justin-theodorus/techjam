@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import math
 
-from submission.src import dialogue
-from submission.src import slots as slots_module
+from techjam.submission.src import dialogue
+from techjam.submission.src import slots as slots_module
 
 # The attributes a question can name. `other` is deliberately absent: it is not
 # an attribute, it is a request for anything, and it is scored separately.

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from submission.src import dialogue
-from submission.src import response
+from techjam.submission.src import dialogue
+from techjam.submission.src import response
 
 
 def reply(state, parsed, contenders=1, head=1, served=10, asked="other"):
