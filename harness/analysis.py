@@ -11,6 +11,8 @@ import statistics
 
 from evaluator.local_evaluator import normalize_recommendations
 
+from submission.src import llm
+
 PIVOT_PREFIX = "Actually, ignore my earlier preference."
 DISCLOSURE_PREFIX = "For that, what matters is: "
 NO_PREFERENCE_PREFIX = "I don't have a preference for "
@@ -89,6 +91,39 @@ def latency_summary(sessions: list[dict]) -> dict:
         "p50_ms": round(statistics.median(latencies), 3),
         "p95_ms": round(latencies[min(len(latencies) - 1, int(0.95 * len(latencies)))], 3),
         "max_ms": round(latencies[-1], 3),
+    }
+
+
+def usage_summary(sessions: list[dict]) -> dict:
+    """What the model tier spent, from the same run as the score.
+
+    Read off the agent's own per-turn `debug`, which the recording proxy
+    already snapshots, so the tokens and the score cannot come from different
+    runs. An offline run reports honest measured zeros rather than a gap.
+    """
+    turns = [turn for session in sessions for turn in session["turns"]]
+    debugs = [turn.get("debug") or {} for turn in turns]
+    totals = {
+        field: sum(int(debug.get(field, 0)) for debug in debugs)
+        for field in ("calls", "failures", "tokens")
+    }
+    reported = [turn.get("usage") or {} for turn in turns]
+    prompt_tokens = sum(int(item.get("prompt_tokens", 0)) for item in reported)
+    completion_tokens = sum(
+        int(item.get("completion_tokens", 0)) for item in reported
+    )
+    models = {debug["llm"] for debug in debugs if debug.get("llm")}
+    return {
+        "model": sorted(models)[0] if models else None,
+        "calls": totals["calls"],
+        "failures": totals["failures"],
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+        "model_ms": round(
+            sum(float(debug.get("llm_ms", 0.0)) for debug in debugs), 1
+        ),
+        "cost_usd": round(llm.cost(prompt_tokens, completion_tokens), 4),
     }
 
 

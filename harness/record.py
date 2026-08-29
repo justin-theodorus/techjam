@@ -35,6 +35,25 @@ def _is_discarded(response: object) -> bool:
     return not isinstance(response, dict) or not isinstance(response.get("message"), str)
 
 
+def _reported_usage(response: object) -> dict:
+    """The turn's declared token usage, read exactly as the evaluator reads it.
+
+    Mirror of evaluator lines 245-250: only non-negative `int` counts are
+    accepted, so what the trace totals is what the organizer would total, and
+    a count typed in the wrong shape shows here as a zero rather than hiding.
+    """
+    counts = {"prompt_tokens": 0, "completion_tokens": 0}
+    usage = response.get("usage") if isinstance(response, dict) else None
+    if not isinstance(usage, dict):
+        return counts
+    for field in counts:
+        value = usage.get(field)
+        ok = isinstance(value, int) and not isinstance(value, bool)
+        if ok and value >= 0:
+            counts[field] = value
+    return counts
+
+
 def _debug_snapshot(agent: object) -> dict | None:
     """Optional agent-side diagnostics.
 
@@ -93,5 +112,6 @@ class RecordingAgent:
             "discarded": _is_discarded(response),
             "error": error,
             "latency_ms": round((perf_counter() - started) * 1000.0, 3),
+            "usage": _reported_usage(response),
             "debug": _debug_snapshot(self.agent),
         })

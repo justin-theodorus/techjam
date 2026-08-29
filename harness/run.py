@@ -16,9 +16,10 @@ from time import perf_counter
 
 from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
 from harness import diff as diff_module
-from harness.analysis import analyze, health_summary, latency_summary
+from harness.analysis import analyze, health_summary, latency_summary, usage_summary
 from harness.record import RecordingAgent
 from harness.report import baseline, render
+from submission.src import ranking
 
 DEFAULT_AGENT = "submission.agent:Agent"
 BASELINE_FIELDS = (
@@ -72,6 +73,7 @@ def build_artifact(args, agent_spec: str, result: dict, sessions: list[dict], ti
         "duration_s": timings["duration_s"],
         "metrics": metrics,
         "latency": latency_summary(sessions),
+        "usage": usage_summary(sessions),
         "health": health_summary(sessions),
         "sessions": sessions,
     }
@@ -131,6 +133,8 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--no-diff", action="store_true")
     parser.add_argument("--check-baseline", action="store_true",
                         help="assert the run reproduces docs/baseline_results.json")
+    parser.add_argument("--llm", action="store_true",
+                        help="run Tier 2's model rerank; needs USE_LLM=1 and a key")
     parser.add_argument("--no-fast-path", action="store_true",
                         help="disable the agent's template shortcut, so the general "
                              "understanding path is scored on its own")
@@ -146,6 +150,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit is not None:
         samples = samples[: args.limit]
     catalog_ids, categories, products = catalog_index(catalog_path)
+
+    if args.llm:
+        # Set before the agent is built so the sweep and the run reach the
+        # stage the same way: a module global read at call time, never a
+        # default bound at import (ranking.py's late-binding rule).
+        ranking.LLM_RERANK = 1
 
     started = perf_counter()
     agent = build_agent(load_agent_class(args.agent), catalog_path, args.no_fast_path)

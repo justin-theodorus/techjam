@@ -74,6 +74,9 @@ def render(artifact: dict) -> str:
             f"{reference['mttc']:>8.2f}{reference['technical_score']:>9.4f}"
         )
     lines.extend(["", _health_line(artifact["health"]), _latency_line(artifact["latency"])])
+    usage = _usage_line(artifact.get("usage"))
+    if usage:
+        lines.append(usage)
     return "\n".join(lines)
 
 
@@ -84,6 +87,24 @@ def _health_line(health: dict) -> str:
         f"health {marker} exceptions={health['agent_exceptions']} "
         f"discarded={health['discarded_responses']} dropped_slots={health['dropped_slots']} "
         f"short_slates={health['short_slates']} wasted_pre_pivot_hits={health['wasted_pre_pivot_hits']}"
+    )
+
+
+def _usage_line(usage: dict | None) -> str:
+    """The model tier's spend, or nothing at all on the offline path.
+
+    Silent rather than zeroed when no model ran: the offline configuration's
+    honest zero is already the `usage` field in every recorded turn, and a
+    permanent "$0.00" line would read as an omission rather than a result.
+    """
+    if not usage or not usage.get("model"):
+        return ""
+    return (
+        f"model    {usage['model']} calls={usage['calls']} "
+        f"failures={usage['failures']} "
+        f"tokens={usage['prompt_tokens']}/{usage['completion_tokens']} "
+        f"cost=${usage['cost_usd']:.4f} "
+        f"model_time={usage['model_ms'] / 1000.0:.1f}s"
     )
 
 
