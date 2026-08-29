@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversational search: what happens between the message and the slate</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="dot"></span>
+    <b>Conversational Search</b>
+    <span class="muted">pipeline inspector</span>
+  </div>
+
+  <div class="modes">
+    <button class="mode on" data-mode="replay">Replay a scored session</button>
+    <button class="mode" data-mode="live">Free-typing chat</button>
+  </div>
+
+  <div class="verdict" id="verdict"></div>
+</header>
+
+<section class="controls" id="controls">
+  <div class="row" id="replay-controls">
+    <label>Session</label>
+    <select id="samples"></select>
+    <button class="go" id="run">Run session</button>
+    <span class="hint" id="replay-hint">Driven by the organizer's own
+      <code>evaluate()</code>. The score is the evaluator's verdict.</span>
+  </div>
+
+  <div class="row hidden" id="live-controls">
+    <label>Goal product <span class="muted">(optional)</span></label>
+    <input id="goal-search" placeholder="search titles, e.g. leather crossbody bag">
+    <button class="go" id="open">Start session</button>
+    <span class="hint">No ground truth here, so <b>no score</b>. A goal product
+      only shows where it sits in the ranking.</span>
+    <div class="results hidden" id="goal-results"></div>
+  </div>
+</section>
+
+<main class="split">
+  <section class="chat" id="chat">
+    <div class="empty">Pick a session and press run.</div>
+  </section>
+
+  <section class="pipe" id="pipe">
+    <div class="empty">The pipeline for the selected turn appears here.</div>
+  </section>
+</main>
+
+<div class="composer hidden" id="composer">
+  <input id="say" placeholder="Type as the customer, then press enter" autocomplete="off">
+  <button id="send">Send</button>
+  <span class="turns" id="turns"></span>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
