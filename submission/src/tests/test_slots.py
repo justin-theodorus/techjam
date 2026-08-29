@@ -78,6 +78,55 @@ class LearnedVocabularyTest(unittest.TestCase):
         self.assertEqual(CATALOG.classify("Ribbed knit cuffs"), slots.DEFAULT)
 
 
+class PolarityTest(unittest.TestCase):
+    """Reading a refusal, and refusing to read one that is not there."""
+
+    def test_a_spoken_refusal_is_read_and_its_cue_stripped(self) -> None:
+        for value, term in (
+            ("not polyester", "polyester"),
+            ("without leather", "leather"),
+            ("avoid silk", "silk"),
+            ("other than wool", "wool"),
+            ("don't want spandex", "spandex"),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(slots.polarity(value), (True, term))
+
+    def test_a_cue_inside_a_clause_does_not_flip_it(self) -> None:
+        value = "moisture wicking, not bulky"
+
+        self.assertEqual(slots.polarity(value), (False, value))
+
+    def test_an_attribute_named_negatively_is_not_a_refusal(self) -> None:
+        """This catalog spells 239 `Non-Polarized` and 192 `No Closure
+        closure`, 3 of which reach the public 200 (findings 3.31)."""
+        for value in ("Non-Polarized", "No Closure closure", "No-Tie Laces",
+                      "no wool"):
+            with self.subTest(value=value):
+                self.assertEqual(slots.polarity(value), (False, value))
+
+    def test_a_refusal_inside_a_keyed_pair_keeps_its_key(self) -> None:
+        self.assertEqual(
+            slots.polarity("Fabric Type: not cotton"),
+            (True, "Fabric Type: cotton"),
+        )
+
+    def test_a_cue_with_nothing_after_it_is_not_a_refusal(self) -> None:
+        self.assertEqual(slots.polarity("not"), (False, "not"))
+
+    def test_a_refusal_is_typed_by_what_it_refuses(self) -> None:
+        """Typing it as the majority class would hide it from the targeted
+        override, which supersedes by attribute."""
+        self.assertEqual(CATALOG.classify("not cotton"), slots.MATERIAL)
+        self.assertEqual(CATALOG.classify("cotton"), slots.MATERIAL)
+
+    def test_typing_records_the_polarity_on_the_slot(self) -> None:
+        typed = CATALOG.slots(("not cotton", "black"), turn=1)
+
+        self.assertEqual([slot.negated for slot in typed], [True, False])
+        self.assertEqual(typed[0].value, "not cotton")
+
+
 class BudgetTest(unittest.TestCase):
     def test_a_stated_price_is_a_budget_however_it_is_phrased(self) -> None:
         for value in (
@@ -119,6 +168,52 @@ class SlotTest(unittest.TestCase):
         )
         self.assertEqual([slot.turn for slot in typed], [3, 3, 3])
         self.assertEqual(typed[0].value, "cotton")
+
+
+class ClassifyTextTest(unittest.TestCase):
+    """Typing free text, which `classify` cannot do (findings 3.38)."""
+
+    def setUp(self) -> None:
+        builder = slots.TaxonomyBuilder()
+        for _ in range(8):
+            builder.add({"Material": "Cotton", "Color": "Navy"}, True)
+            builder.add({"Material": "Polyester", "Color": "Black"}, True)
+        self.taxonomy = builder.freeze()
+
+    def test_a_value_named_inside_a_sentence_is_still_typed(self) -> None:
+        """The case `classify` misses: a bullet mentions, it does not state."""
+        self.assertEqual(
+            self.taxonomy.classify("95% Cotton, 5% Spandex"), slots.FEATURE
+        )
+        self.assertEqual(
+            self.taxonomy.classify_text("95% Cotton, 5% Spandex"),
+            slots.MATERIAL,
+        )
+
+    def test_text_naming_nothing_learned_falls_back(self) -> None:
+        self.assertEqual(
+            self.taxonomy.classify_text("Imported"), slots.DEFAULT
+        )
+
+    def test_a_stated_budget_outranks_any_other_word(self) -> None:
+        self.assertEqual(
+            self.taxonomy.classify_text("cotton, budget around $25"),
+            slots.BUDGET,
+        )
+
+    def test_a_refusal_is_typed_by_what_it_refuses(self) -> None:
+        self.assertEqual(
+            self.taxonomy.classify_text("not cotton"), slots.MATERIAL
+        )
+
+    def test_the_vocabulary_is_learned_rather_than_declared(self) -> None:
+        """Rename the attribute and the typing follows it."""
+        builder = slots.TaxonomyBuilder()
+        for _ in range(8):
+            builder.add({"Color": "Cotton"}, True)
+        renamed = builder.freeze()
+
+        self.assertEqual(renamed.classify_text("100% cotton"), slots.COLOR)
 
 
 if __name__ == "__main__":

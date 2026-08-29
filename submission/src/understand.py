@@ -181,7 +181,10 @@ def _from_template(
 
     if value.startswith(NO_ADDITIONAL_PREFIX):
         return dialogue.ParsedTurn(
-            exhausted=True, act=dialogue.ACT_EXHAUST, confidence=EXACT
+            exhausted=True,
+            exhausted_arm=_named_arm(value, NO_ADDITIONAL_PREFIX),
+            act=dialogue.ACT_EXHAUST,
+            confidence=EXACT,
         )
 
     if value.startswith(NO_PREFERENCE_PREFIX):
@@ -331,6 +334,17 @@ def _residue(value: str, buckets: tuple[str, ...]) -> tuple[str, ...]:
         if tokens and not set(tokens) <= named:
             kept.append(stripped)
     return tuple(kept)
+
+
+def _named_arm(value: str, prefix: str) -> str | None:
+    """Returns the attribute an "I don't have..." sentence names, if any.
+
+    The customer says which thing they are out of, so reading it back is more
+    reliable than the agent's own record of what it asked, and it is what makes
+    a replayed transcript type the same way a live turn does.
+    """
+    named = value[len(prefix):].strip().rstrip(".").casefold()
+    return named or None
 
 
 def _act(value: str) -> str:

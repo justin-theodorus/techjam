@@ -19,6 +19,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from submission.src import text
+
 # The attributes a probe may ask about, ordered by how much of this catalog's
 # constraint text they account for.
 MATERIAL = "material"
@@ -70,6 +72,31 @@ _LOGISTICS = (
 
 _KEY_RE = re.compile(r"^\s*([^:]{1,40}?)\s*:\s*(.+)$", re.DOTALL)
 
+# A refusal names an attribute the customer does not want. Anchored to the head
+# of the constraint, or to the head of a `"Key: value"` payload, because an
+# interior "not" almost always belongs to a marketing clause ("not sold
+# separately") rather than to the customer, and flipping a whole constraint on
+# one of those inverts a signal that was reading correctly.
+#
+# `no` and `non-` are deliberately absent, and the cue must be followed by
+# whitespace rather than a hyphen. This catalog spells attribute *names* that
+# way -- `Non-Polarized` 239 times, `No Closure closure` 192, `No-Tie Laces`,
+# `NO SHOW ATHLETIC SOCKS` -- so reading them as refusals inverts 0.3% of all
+# constraint text, 3 of which reach the public 200 (findings 3.31). The cost is
+# that a customer who says "no wool" is not heard; the catalog says the
+# ambiguity is not worth it.
+# The master switch for reading refusals at all. Ships live: without it a
+# refusal is scored as evidence *for* what the customer declined. Ablating
+# `ranking.NEGATION_WEIGHT` alone measures only the penalty half, which is the
+# small half; this is what turns the whole mechanism off (findings 3.31).
+NEGATION = True
+
+_NEGATION_RE = re.compile(
+    r"^(?:not|without|avoid|excluding|other than|anything but|rather than|"
+    r"don'?t want|do not want|doesn'?t have to be)\s+",
+    re.IGNORECASE,
+)
+
 # Values longer than this are prose, not attribute vocabulary, and indexing them
 # would teach the classifier whole marketing sentences.
 MAX_VALUE_LENGTH = 30
@@ -80,6 +107,42 @@ MAX_VALUE_LENGTH = 30
 # under `Department` and `Style`, which should not disqualify it.
 MIN_AGREEMENT = 0.7
 
+# The token vocabulary is a second, looser pass over the same `details` values,
+# and it exists only so free constraint text can be typed (findings 3.38). Its
+# thresholds are separate from the ones above on purpose: `classify` matches a
+# value outright and can afford to be strict, while a single word carries less
+# evidence and needs a support floor instead.
+MAX_TOKEN_VALUE_LENGTH = 60
+MIN_TOKEN_LENGTH = 2
+MIN_TOKEN_SUPPORT = 5
+
+# Words that appear under every kind of key and so type nothing.
+_TOKEN_STOPWORDS = frozenset(
+    ("and", "the", "for", "with", "from", "not", "all", "one", "two")
+)
+
+
+def polarity(value: str) -> tuple[bool, str]:
+    """Returns whether a constraint refuses something, and its text without
+    the cue.
+
+    The stripped text is what typing and retrieval want; the caller keeps the
+    raw string, because the reply quotes the customer back to themselves and
+    "polyester" is not what they said.
+    """
+    if not NEGATION:
+        return False, value
+
+    match = _KEY_RE.match(value)
+    key, body = (match.group(1), match.group(2)) if match else ("", value)
+
+    stripped = _NEGATION_RE.sub("", body.strip(), count=1)
+    if stripped == body.strip():
+        return False, value
+    if not stripped:
+        return False, value
+    return True, f"{key}: {stripped}" if key else stripped
+
 
 @dataclass(frozen=True)
 class Slot:
@@ -88,6 +151,7 @@ class Slot:
     attribute: str
     value: str
     turn: int
+    negated: bool = False
 
 
 class Taxonomy:
@@ -98,10 +162,12 @@ class Taxonomy:
         values: dict[str, str],
         declared: dict[str, int],
         documents: int,
+        tokens: dict[str, str] | None = None,
     ) -> None:
         self._values = values
         self._declared = declared
         self._documents = documents or 1
+        self._tokens = tokens or {}
 
     def prevalence(self, attribute: str) -> float:
         """Returns the share of products that say anything about `attribute`.
@@ -117,7 +183,12 @@ class Taxonomy:
 
         Tries, in order: a stated price, the key of a `"Key: value"` pair, the
         learned value vocabulary, and finally the majority class.
+
+        A refusal is typed by what it refuses, so "not polyester" is a material
+        like "polyester" is. Typing it as the majority class instead would hide
+        it from the targeted override, which supersedes by attribute.
         """
+        _, value = polarity(value)
         if _BUDGET_RE.search(value):
             return BUDGET
 
@@ -135,12 +206,36 @@ class Taxonomy:
             return learned
         return DEFAULT
 
+    def classify_text(self, value: str) -> str:
+        """Types free text by the vocabulary its individual words land in.
+
+        `classify` asks whether the whole string is a value this catalog uses.
+        This asks the weaker question -- whether any word in it is -- which is
+        what a marketing bullet needs, since it names an attribute in passing
+        rather than stating it. The two are kept apart because `classify` feeds
+        `NEGATION` and the targeted override, and loosening it would move both.
+
+        Ties break toward the more specific attribute: a stated budget is more
+        specific than a material, a material more than a style.
+        """
+        _, body = polarity(value)
+        if _BUDGET_RE.search(body):
+            return BUDGET
+        hits = {
+            self._tokens[token] for token in text.unique_tokens(body)
+            if token in self._tokens
+        }
+        if not hits:
+            return DEFAULT
+        return min(hits, key=_specificity)
+
     def slots(
         self, constraints: tuple[str, ...], turn: int
     ) -> tuple[Slot, ...]:
         """Types a whole constraint list, keeping order."""
         return tuple(
-            Slot(self.classify(value), value, turn) for value in constraints
+            Slot(self.classify(value), value, turn, polarity(value)[0])
+            for value in constraints
         )
 
 
@@ -149,6 +244,7 @@ class TaxonomyBuilder:
 
     def __init__(self) -> None:
         self._counts: dict[str, dict[str, int]] = {}
+        self._tokens: dict[str, dict[str, int]] = {}
         self._declared: dict[str, int] = {}
         self._documents = 0
 
@@ -167,6 +263,9 @@ class TaxonomyBuilder:
                 for word in _candidate_values(value):
                     tally = self._counts.setdefault(word, {})
                     tally[attribute] = tally.get(attribute, 0) + 1
+                for word in _candidate_tokens(value):
+                    tally = self._tokens.setdefault(word, {})
+                    tally[attribute] = tally.get(attribute, 0) + 1
 
         # A product with bullets can always be described by one of them, and
         # half of this catalog's constraint text is exactly that: a plain
@@ -184,7 +283,23 @@ class TaxonomyBuilder:
             attribute = max(tally, key=tally.get)
             if tally[attribute] / total >= MIN_AGREEMENT:
                 learned[word] = attribute
-        return Taxonomy(learned, dict(self._declared), self._documents)
+        tokens = {}
+        for word, tally in self._tokens.items():
+            total = sum(tally.values())
+            if total < MIN_TOKEN_SUPPORT:
+                continue
+            attribute = max(tally, key=tally.get)
+            if tally[attribute] / total >= MIN_AGREEMENT:
+                tokens[word] = attribute
+        return Taxonomy(
+            learned, dict(self._declared), self._documents, tokens
+        )
+
+
+def _specificity(attribute: str) -> int:
+    """Returns how narrow an attribute is, for breaking a multi-hit tie."""
+    order = (BUDGET, MATERIAL, COLOR, SIZE, STYLE, USE_CASE)
+    return order.index(attribute) if attribute in order else len(order)
 
 
 def _candidate_values(value: object) -> list[str]:
@@ -195,6 +310,23 @@ def _candidate_values(value: object) -> list[str]:
     if not cleaned or len(cleaned) > MAX_VALUE_LENGTH:
         return []
     return [cleaned]
+
+
+def _candidate_tokens(value: object) -> list[str]:
+    """Returns the single words one `details` value contributes.
+
+    `_candidate_values` keeps the whole string, which is what `classify` wants:
+    an outright-stated value should match outright. But free constraint text
+    almost never restates a value verbatim -- a bullet reads "95% Cotton, 5%
+    Spandex" where the vocabulary learned "cotton" -- so typing that text needs
+    the same evidence one level down (findings 3.38).
+    """
+    if not isinstance(value, str) or len(value) > MAX_TOKEN_VALUE_LENGTH:
+        return []
+    return [
+        token for token in text.unique_tokens(value)
+        if len(token) > MIN_TOKEN_LENGTH and token not in _TOKEN_STOPWORDS
+    ]
 
 
 def _from_key(key: str) -> str | None:

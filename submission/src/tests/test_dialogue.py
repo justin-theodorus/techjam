@@ -109,6 +109,66 @@ class StateTest(unittest.TestCase):
         self.assertIsNot(before, after)
 
 
+class NegationTest(unittest.TestCase):
+    """A refusal must leave the positive query and enter the negative one."""
+
+    def _state(self, *constraints: str) -> dialogue.SessionState:
+        taxonomy = slots.TaxonomyBuilder()
+        taxonomy.add({"Material": "cotton"}, True)
+        return dialogue.update(
+            dialogue.SessionState(),
+            dialogue.ParsedTurn(constraints=constraints),
+            taxonomy=taxonomy.freeze(),
+        )
+
+    def test_a_refusal_stays_out_of_the_positive_query(self) -> None:
+        state = self._state("black", "not cotton")
+
+        self.assertEqual(state.query_text, "black")
+
+    def test_a_refusal_reaches_the_negative_query_without_its_cue(self) -> None:
+        state = self._state("black", "not cotton")
+
+        self.assertEqual(state.excluded_text, "cotton")
+
+    def test_the_raw_wording_is_kept_so_the_reply_can_quote_it(self) -> None:
+        state = self._state("not cotton")
+
+        self.assertEqual(state.constraints, ("not cotton",))
+
+    def test_a_session_with_no_refusal_has_no_negative_query(self) -> None:
+        state = self._state("black", "leather")
+
+        self.assertEqual(state.excluded_text, "")
+        self.assertEqual(state.query_text, "black leather")
+
+
+class ShownTest(unittest.TestCase):
+    """What has been served, and the one thing that un-serves it."""
+
+    def test_the_shown_set_accumulates_across_turns(self) -> None:
+        state = dialogue.SessionState().with_slate(("A", "B"))
+        state = state.with_slate(("B", "C"))
+
+        self.assertEqual(state.shown, frozenset({"A", "B", "C"}))
+
+    def test_an_ordinary_turn_carries_the_shown_set_forward(self) -> None:
+        state = dialogue.SessionState().with_slate(("A", "B"))
+
+        folded = dialogue.update(state, dialogue.ParsedTurn(constraints=("x",)))
+
+        self.assertEqual(folded.shown, frozenset({"A", "B"}))
+
+    def test_a_pivot_clears_it_because_nothing_was_ever_tested(self) -> None:
+        """`override_applied` gates scoring, so a pre-pivot impression was
+        never checked against the new target and may well be it."""
+        state = dialogue.SessionState().with_slate(("A", "B"))
+
+        folded = dialogue.update(state, dialogue.ParsedTurn(pivot=True))
+
+        self.assertEqual(folded.shown, frozenset())
+
+
 class PoolKeysTest(unittest.TestCase):
     def test_a_state_with_no_category_retrieves_from_nothing(self) -> None:
         self.assertEqual(dialogue.SessionState().pool_keys, ())
@@ -178,6 +238,67 @@ class TurnCounterTest(unittest.TestCase):
         )
 
         self.assertEqual(pivoted.turn, 4)
+
+
+class ScopedExhaustionTest(unittest.TestCase):
+    """"Nothing more about X" is not "nothing more at all" (findings 3.37)."""
+
+    EMPTY = dialogue.ParsedTurn(exhausted=True)
+
+    def test_an_empty_specific_answer_retires_only_that_arm(self) -> None:
+        state = dialogue.update(
+            dialogue.SessionState(), self.EMPTY, asked="material"
+        )
+
+        self.assertFalse(state.exhausted)
+        self.assertIn("material", state.refused)
+
+    def test_an_empty_wildcard_answer_still_ends_the_asking(self) -> None:
+        state = dialogue.update(
+            dialogue.SessionState(), self.EMPTY, asked=dialogue.WILDCARD
+        )
+
+        self.assertTrue(state.exhausted)
+
+    def test_the_attribute_the_customer_named_wins_over_what_was_asked(
+        self
+    ) -> None:
+        """The reply says which thing they are out of; believe the reply."""
+        named = dialogue.ParsedTurn(
+            exhausted=True, exhausted_arm=dialogue.WILDCARD
+        )
+
+        state = dialogue.update(
+            dialogue.SessionState(), named, asked="material"
+        )
+
+        self.assertTrue(state.exhausted)
+        self.assertNotIn("material", state.refused)
+
+    def test_an_empty_answer_to_no_question_still_ends_it(self) -> None:
+        state = dialogue.update(dialogue.SessionState(), self.EMPTY)
+
+        self.assertTrue(state.exhausted)
+
+    def test_exhaustion_once_reached_is_never_taken_back(self) -> None:
+        spent = dialogue.SessionState(exhausted=True)
+
+        state = dialogue.update(spent, self.EMPTY, asked="color")
+
+        self.assertTrue(state.exhausted)
+
+    def test_switching_the_scope_off_restores_the_old_reading(self) -> None:
+        original = dialogue.SCOPED_EXHAUSTION
+        dialogue.SCOPED_EXHAUSTION = False
+        self.addCleanup(
+            setattr, dialogue, "SCOPED_EXHAUSTION", original
+        )
+
+        state = dialogue.update(
+            dialogue.SessionState(), self.EMPTY, asked="material"
+        )
+
+        self.assertTrue(state.exhausted)
 
 
 if __name__ == "__main__":
