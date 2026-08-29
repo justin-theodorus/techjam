@@ -19,6 +19,40 @@ SLATE_SIZE = 10
 # measurement supports rather than dropped on the floor (findings 3.28).
 PROFILE_WEIGHT = 0.0
 
+# How much the dense track is allowed to move an in-bucket ranking.
+#
+# The second retriever, and the only component in the project that can match a
+# word the catalog never uses. BM25 scores "trousers" at zero against a product
+# whose bullets say "pants"; the latent space scores it at 0.91, because the two
+# words occupy the same neighbourhood in text the catalog wrote about itself
+# (findings 3.35). That is the `synonym` column's exact failure mode, and it is
+# the worst column we have.
+#
+# Ships at zero. The asset is bundled and loaded, and at this weight it
+# contributes nothing to any reported number, so every headline stays Tier 0:
+# standard library, no third-party package, no network. `make deviations` reads
+# it as an eighth component and the writeup reports the column either way.
+DENSE_WEIGHT = 0.0
+
+# The dense half of the refusal subtraction, kept separate from the positive
+# weight because there is no reason to assume they are equal. Leaving the
+# refusal lexical-only while the preference is both would be exactly the kind of
+# asymmetry Phase 6T was created to catch, so it is measured rather than
+# assumed.
+DENSE_NEGATION_WEIGHT = 0.0
+
+# How hard a refused attribute counts against a product. Unlike the five
+# switched-off deviations this ships live, because the behaviour it replaces is
+# not a neutral default but an inverted one: without it "not polyester" is
+# scored as evidence *for* polyester, and the agent served the refused material
+# at 2.3x its shelf rate, up to 5.1x on the rarer ones (findings 3.31).
+#
+# A penalty rather than a filter. Refusal detection is lexical and the catalog
+# spells some attribute names negatively, so a false positive here costs a few
+# ranks that a later turn recovers, where a filter would make the target
+# unreachable for the rest of the session.
+NEGATION_WEIGHT = 0.5
+
 # How many top-ranked products to commit to while the customer still has
 # something left to tell us.
 #
@@ -54,6 +88,29 @@ CONTENTION_MARGIN = 0.02
 # heavily would want it back.
 CONVERGE_AT = 0
 
+# Whether a product the customer has already been shown may occupy a slot
+# again. Ships live, because the alternative is not a neutral default but a
+# provably dead one: a session ends at the first turn the target appears in the
+# slate, so anything already shown is not the answer and re-showing it converts
+# nothing. Measured before the change, 62.9% of impressions on `thin_cards`
+# were repeats and 60 of its 78 misses had the target inside the slot budget
+# the session had already spent (findings 3.32).
+SKIP_SHOWN = True
+
+# Whether a built model-backed rerank stage may reorder the served ten.
+#
+# Tier 2, and the second of two gates: `llm.build()` returns nothing at all
+# unless `USE_LLM=1`, and this decides whether a stage that was built gets
+# consulted. Both are needed, so the scored configuration reads neither a
+# credential nor the network.
+#
+# Ships at zero, and the reason is arithmetic rather than taste. A permutation
+# cannot move HitRate or MTTC, but on the public 200 only 20 of 200 sessions
+# convert below rank 1, so a *perfect* reordering is worth 0.022 of score while
+# a careless one can move all 180 sessions that already convert first
+# (findings 3.36).
+LLM_RERANK = 0
+
 # A session discloses at most four constraints, after which the customer has
 # nothing left to add and there is no reason to keep waiting.
 FULL_DISCLOSURE = 4
@@ -80,24 +137,45 @@ def slate(
     alpha: float = ALPHA,
     defer_turns: int = MAX_DEFER_TURNS,
     profile_ids: frozenset[int] = frozenset(),
+    dense_weight: float | None = None,
+    reach: int = 0,
+    reranker: Reranker | None = None,
 ) -> Served:
     """Filters to the resolved buckets, ranks inside them, then pads to `size`.
 
     A confident category read yields one bucket and this is a hard filter. An
     uncertain one yields a few, which widens the pool rather than emptying it.
     """
+    # Resolved here rather than in the signature: a default argument binds at
+    # definition, which is how findings 3.27 lost a whole sweep to a constant
+    # that could no longer be patched. `None` means "whatever the module says
+    # now", which is what makes this switch readable by `make deviations`.
+    if dense_weight is None:
+        dense_weight = DENSE_WEIGHT
     query_ids = catalog.index.query_ids(text.unique_tokens(state.query_text))
+    negative_ids = catalog.index.query_ids(
+        text.unique_tokens(state.excluded_text)
+    )
+    dense_query = encode(
+        catalog, state.query_text, dense_weight > 0.0 or reach > 0
+    )
+    dense_negative = encode(
+        catalog, state.excluded_text, DENSE_NEGATION_WEIGHT > 0.0
+    )
+    pool = widen(catalog, state, dense_query, reach)
     ordered, scores = ranked(
-        catalog, catalog.pool(state.pool_keys), query_ids, alpha, profile_ids
+        catalog, pool, query_ids, alpha, profile_ids,
+        negative_ids, dense_query, dense_negative, dense_weight,
     )
     contenders = contention(scores)
+    ordered, scores = unseen(catalog, ordered, scores, state.shown, size)
     head = head_size(state, size, defer_turns, contenders)
     if DIVERSITY > 0.0:
         chosen = diversify(catalog, ordered, scores, head, size, DIVERSITY)
     else:
         chosen = compose(ordered, head, size)
     padded = pad(catalog, chosen, state.category, size)
-    final = rerank(catalog, padded, state)
+    final = reranked(catalog, padded, state, reranker)
 
     # Padding draws from outside the ranked pool, so those slots genuinely have
     # no score rather than a low one. Zero is the honest value for them.
@@ -110,12 +188,75 @@ def slate(
     )
 
 
+def widen(
+    catalog: catalog_module.Catalog,
+    state: dialogue.SessionState,
+    dense_query: tuple[float, ...] | None,
+    reach: int,
+) -> tuple[int, ...]:
+    """Returns the candidate pool, optionally reaching past the category.
+
+    This is the retrieval half of the dense track, as opposed to the ranking
+    half in `ranked`: it changes *which* products a route considers rather
+    than how the chosen ones are weighed, and it is the only thing that makes
+    a route a retriever instead of a second set of constants.
+
+    The reach draws from the coarser group the bucket sits inside, which is
+    the same pool `pad` already falls back to. The difference is that padding
+    picks by popularity alone, blind to everything the customer said, where
+    this picks by similarity to what they said.
+
+    The union is re-sorted by the prior because `ranked` leans on a
+    popularity-ordered pool for its tie-break: a query that matches nothing
+    must still rank sensibly, and appending candidates in similarity order
+    would quietly break that.
+    """
+    pool = catalog.pool(state.pool_keys)
+    if reach <= 0 or dense_query is None or catalog.dense is None:
+        return pool
+    outside = [
+        index for index in catalog.fallback_pool(state.category)
+        if index not in set(pool)
+    ]
+    extra = catalog.dense.nearest(dense_query, outside, reach)
+    if not extra:
+        return pool
+    merged = list(pool) + extra
+    merged.sort(key=lambda index: -catalog.prior[index])
+    return tuple(merged)
+
+
+def encode(
+    catalog: catalog_module.Catalog, value: str, active: bool
+) -> tuple[float, ...] | None:
+    """Returns `value` as a latent vector, or `None` if the track is inert.
+
+    Encoded once per turn rather than once per document, which is what keeps
+    the dense term linear in the pool. Three separate ways of returning
+    `None`, and all three have to degrade to the lexical blend unchanged: the
+    track is switched off, the asset is absent or bound to a different
+    catalog, or the customer used no word the space has ever seen.
+
+    `active` rather than a weight because retrieval and ranking are separate
+    uses. A route may reach for candidates densely and still rank them
+    lexically, which is the purest form of the two-retriever split and has to
+    be measurable on its own.
+    """
+    if not active or catalog.dense is None or not value:
+        return None
+    return catalog.dense.encode(text.unique_tokens(value))
+
+
 def ranked(
     catalog: catalog_module.Catalog,
     pool: tuple[int, ...],
     query_ids: frozenset[int],
     alpha: float = ALPHA,
     profile_ids: frozenset[int] = frozenset(),
+    negative_ids: frozenset[int] = frozenset(),
+    dense_query: tuple[float, ...] | None = None,
+    dense_negative: tuple[float, ...] | None = None,
+    dense_weight: float | None = None,
 ) -> tuple[list[int], list[float]]:
     """Returns every document in `pool` best first, with its blended score.
 
@@ -126,6 +267,13 @@ def ranked(
         alpha: Weight on the popularity prior relative to BM25.
         profile_ids: Token ids of the customer's standing preference tags. A
           tie-break at most; see `PROFILE_WEIGHT`.
+        negative_ids: Token ids of what the customer has refused. Subtracted;
+          see `NEGATION_WEIGHT`.
+        dense_query: The constraints as a latent vector, or `None` when the
+          track is off or the words are all unknown to it.
+        dense_negative: The refusals as a latent vector; see
+          `DENSE_NEGATION_WEIGHT`.
+        dense_weight: Weight on the dense similarity for this route.
     """
     if not pool:
         return [], []
@@ -141,12 +289,39 @@ def ranked(
         score / max_lexical + alpha * prior[index] / max_prior
         for index, score in zip(pool, lexical)
     ]
+    if dense_weight is None:
+        dense_weight = DENSE_WEIGHT
+    if dense_query is not None and dense_weight > 0.0:
+        similarity = [
+            catalog.dense.score(index, dense_query) for index in pool
+        ]
+        ceiling = max(similarity) or 1.0
+        blended = [
+            value + dense_weight * match / ceiling
+            for value, match in zip(blended, similarity)
+        ]
+    if dense_negative is not None and DENSE_NEGATION_WEIGHT > 0.0:
+        refused = [
+            catalog.dense.score(index, dense_negative) for index in pool
+        ]
+        ceiling = max(refused) or 1.0
+        blended = [
+            value - DENSE_NEGATION_WEIGHT * match / ceiling
+            for value, match in zip(blended, refused)
+        ]
     if profile_ids and PROFILE_WEIGHT > 0.0:
         affinity = [catalog.index.score(index, profile_ids) for index in pool]
         ceiling = max(affinity) or 1.0
         blended = [
             value + PROFILE_WEIGHT * match / ceiling
             for value, match in zip(blended, affinity)
+        ]
+    if negative_ids and NEGATION_WEIGHT > 0.0:
+        refused = [catalog.index.score(index, negative_ids) for index in pool]
+        ceiling = max(refused) or 1.0
+        blended = [
+            value - NEGATION_WEIGHT * match / ceiling
+            for value, match in zip(blended, refused)
         ]
 
     # A stable sort over a popularity-ordered pool means ties fall back to the
@@ -231,6 +406,35 @@ def contention(scores: list[float], margin: float = CONTENTION_MARGIN) -> int:
     return count
 
 
+def unseen(
+    catalog: catalog_module.Catalog,
+    ordered: list[int],
+    scores: list[float],
+    shown: frozenset[str],
+    size: int,
+) -> tuple[list[int], list[float]]:
+    """Drops products the customer has already been shown.
+
+    Every slot spent on one is spent on a product the session has already
+    rejected by not ending, so the ranking below it moves up and the
+    exploration slots reach that much further down the pool.
+
+    Falls back to the unfiltered order when too little survives to fill a
+    slate. A short slate emits empty slots, which is a worse trade than a
+    repeat, and `pad` would only refill them from popularity anyway.
+    """
+    if not SKIP_SHOWN or not shown:
+        return ordered, scores
+    kept = [
+        (index, score)
+        for index, score in zip(ordered, scores)
+        if catalog.asins[index] not in shown
+    ]
+    if len(kept) < size:
+        return ordered, scores
+    return [index for index, _ in kept], [score for _, score in kept]
+
+
 def compose(ordered: list[int], head: int, size: int) -> list[int]:
     """Commits to the head, then explores past the slate rather than below it.
 
@@ -301,10 +505,12 @@ class Reranker(Protocol):
 
     The contract is deliberately narrow: a reranker returns a permutation of
     what it was given, never a different set. Membership fixes coverage and
-    timing, so a stage that only permutes can move precision and nothing else,
-    which bounds any reranker's downside at zero by construction rather than by
-    good behaviour. A model-backed implementation drops in here without any
-    other stage needing to know.
+    timing, so a stage that only permutes bounds its downside on *those* at
+    zero by construction rather than by good behaviour, and can move precision
+    alone. Precision is not similarly protected: 180 of 200 public sessions
+    already convert at rank 1, so a careless permutation has far more to lose
+    there than a good one has to win (findings 3.36). A model-backed
+    implementation drops in here without any other stage needing to know.
     """
 
     def __call__(
@@ -314,6 +520,31 @@ class Reranker(Protocol):
         state: dialogue.SessionState,
     ) -> list[int]:
         ...
+
+
+def reranked(
+    catalog: catalog_module.Catalog,
+    chosen: list[int],
+    state: dialogue.SessionState,
+    reranker: Reranker | None = None,
+) -> list[int]:
+    """Applies the offline rerank, then the model stage if one is running.
+
+    The two compose rather than compete: the model is handed the phrase
+    reranker's order and permutes that. It matters on the failure path, which
+    is the common one. A model stage that *replaced* the offline one would
+    make a timeout cost the phrase evidence as well as the model's judgement,
+    so a turn the model declines would be served worse than the offline agent
+    serves it. Composed, the worst a failed call can do is nothing.
+
+    Whether the model runs is read from the module here rather than bound in a
+    default argument, for the same reason `dense_weight` is: `make deviations`
+    patches the module, and a bound default would no longer be readable.
+    """
+    ordered = rerank(catalog, chosen, state)
+    if LLM_RERANK and reranker is not None:
+        return reranker(catalog, ordered, state)
+    return ordered
 
 
 def rerank(

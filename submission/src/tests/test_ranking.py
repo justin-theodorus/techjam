@@ -7,6 +7,7 @@ from pathlib import Path
 from submission.src import catalog as catalog_module
 from submission.src import dialogue
 from submission.src import ranking
+from submission.src import slots
 from submission.src.tests import fixtures
 
 
@@ -68,6 +69,35 @@ class RankingTest(unittest.TestCase):
         chosen = ranking.slate(self.catalog, state, alpha=0.0).indices
         slate = self.catalog.slate_of(chosen)
         self.assertEqual(slate[0], "SNEAK_RARE")
+
+    def test_profile_weighting_is_switched_off(self) -> None:
+        """Measured: monotonically negative, on the public set and on dev."""
+        self.assertEqual(ranking.PROFILE_WEIGHT, 0.0)
+
+    def test_the_profile_cannot_move_a_ranking_when_off(self) -> None:
+        state = dialogue.SessionState(category=fixtures.SNEAKER_BUCKET)
+        pool = self.catalog.pool(state.pool_keys)
+        tags = self.catalog.index.query_ids(["hemp", "cork"])
+
+        self.assertEqual(
+            ranking.ranked(self.catalog, pool, frozenset(), ranking.ALPHA,
+                           frozenset(tags)),
+            ranking.ranked(self.catalog, pool, frozenset(), ranking.ALPHA,
+                           frozenset()),
+        )
+
+    def test_the_switch_lets_the_profile_move_a_ranking(self) -> None:
+        state = dialogue.SessionState(category=fixtures.SNEAKER_BUCKET)
+        pool = self.catalog.pool(state.pool_keys)
+        tags = frozenset(self.catalog.index.query_ids(["hemp", "cork"]))
+        original = ranking.PROFILE_WEIGHT
+        try:
+            ranking.PROFILE_WEIGHT = 2.0
+            ordered, _ = ranking.ranked(
+                self.catalog, pool, frozenset(), ranking.ALPHA, tags)
+        finally:
+            ranking.PROFILE_WEIGHT = original
+        self.assertEqual(self.catalog.slate_of(ordered)[0], "SNEAK_RARE")
 
     def test_rank_over_an_empty_pool_returns_nothing(self) -> None:
         self.assertEqual(ranking.rank(self.catalog, (), frozenset()), [])
@@ -229,6 +259,10 @@ class DeferredCommitmentTest(unittest.TestCase):
         self.assertEqual(ranking._similarity(left, frozenset({4, 5})), 0.0)
         self.assertEqual(ranking._similarity(left, frozenset()), 0.0)
 
+    def test_diversification_is_switched_off(self) -> None:
+        """Measured: it loses 0.005, and improves as relevance is ignored."""
+        self.assertEqual(ranking.DIVERSITY, 0.0)
+
     def test_the_shipped_slate_holds_the_middle_ranks_back(self) -> None:
         served = ranking.slate(self.catalog, self.state)
         ordered, _ = self._ranked()
@@ -236,6 +270,110 @@ class DeferredCommitmentTest(unittest.TestCase):
         self.assertEqual(served.indices[0], ordered[0])
         for index in ordered[1:10]:
             self.assertNotIn(index, served.indices)
+
+
+class NegationPenaltyTest(unittest.TestCase):
+    """Refused terms subtract. The switch ships live, not neutral."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.catalog = catalog_module.build(
+            fixtures.write_catalog(Path(self.directory.name))
+        )
+        self.addCleanup(self.directory.cleanup)
+        self.pool = self.catalog.pool((fixtures.SNEAKER_BUCKET,))
+
+    def _order(self, negative: tuple[str, ...] = ()) -> list[str]:
+        ordered, _ = ranking.ranked(
+            self.catalog, self.pool, frozenset(), ranking.ALPHA, frozenset(),
+            self.catalog.index.query_ids(list(negative)),
+        )
+        return self.catalog.slate_of(ordered)
+
+    def test_the_penalty_ships_live_rather_than_neutral(self) -> None:
+        """The behaviour it replaces is inverted, not neutral: the refused
+        material was served at 2.3x its shelf rate (findings 3.31)."""
+        self.assertGreater(ranking.NEGATION_WEIGHT, 0.0)
+        self.assertTrue(slots.NEGATION)
+
+    def test_the_master_switch_stops_refusals_being_read_at_all(self) -> None:
+        """Ablating the weight alone leaves refusals out of the positive
+        query, which is the half that pays. This is the whole feature."""
+        original = slots.NEGATION
+        try:
+            slots.NEGATION = False
+            self.assertEqual(slots.polarity("not cotton"),
+                             (False, "not cotton"))
+        finally:
+            slots.NEGATION = original
+
+    def test_a_refused_term_pushes_its_product_down(self) -> None:
+        """`SNEAK_POP` leads on popularity alone; refusing what it is made of
+        must cost it that lead."""
+        self.assertEqual(self._order()[0], "SNEAK_POP")
+
+        self.assertNotEqual(self._order(("cotton", "canvas"))[0], "SNEAK_POP")
+
+    def test_a_refusal_matching_nothing_changes_no_ranking(self) -> None:
+        self.assertEqual(self._order(("unobtainium",)), self._order())
+
+    def test_the_penalty_is_a_no_op_when_switched_off(self) -> None:
+        original = ranking.NEGATION_WEIGHT
+        try:
+            ranking.NEGATION_WEIGHT = 0.0
+            self.assertEqual(self._order(("cotton", "canvas")), self._order())
+        finally:
+            ranking.NEGATION_WEIGHT = original
+
+
+class SkipShownTest(unittest.TestCase):
+    """A product already served cannot convert, so it must not hold a slot."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.catalog = catalog_module.build(
+            fixtures.write_catalog(Path(self.directory.name))
+        )
+        self.addCleanup(self.directory.cleanup)
+        self.state = dialogue.SessionState(
+            category=fixtures.DEEP_BUCKET, turn=1
+        )
+
+    def test_skipping_the_shown_ships_live(self) -> None:
+        """62.9% of `thin_cards` impressions were repeats, and 60 of its 78
+        misses were reachable on the slots they wasted (findings 3.32)."""
+        self.assertTrue(ranking.SKIP_SHOWN)
+
+    def test_a_second_slate_repeats_nothing_from_the_first(self) -> None:
+        first = ranking.slate(self.catalog, self.state)
+        shown = tuple(self.catalog.slate_of(first.indices))
+        second = ranking.slate(self.catalog, self.state.with_slate(shown))
+
+        self.assertEqual(len(second.indices), len(first.indices))
+        served = set(self.catalog.slate_of(second.indices))
+        self.assertFalse(served & set(shown))
+
+    def test_the_switch_restores_the_repeats(self) -> None:
+        first = ranking.slate(self.catalog, self.state)
+        shown = tuple(self.catalog.slate_of(first.indices))
+        original = ranking.SKIP_SHOWN
+        try:
+            ranking.SKIP_SHOWN = False
+            second = ranking.slate(self.catalog, self.state.with_slate(shown))
+        finally:
+            ranking.SKIP_SHOWN = original
+
+        self.assertEqual(second.indices, first.indices)
+
+    def test_a_pool_too_small_to_refill_serves_repeats_over_gaps(self) -> None:
+        """A short slate emits empty slots, which is the worse trade."""
+        state = dialogue.SessionState(category=fixtures.SNEAKER_BUCKET, turn=1)
+        served = ranking.slate(self.catalog, state)
+        shown = tuple(self.catalog.slate_of(served.indices))
+
+        again = ranking.slate(self.catalog, state.with_slate(shown))
+
+        self.assertEqual(len(again.indices), ranking.SLATE_SIZE)
 
 
 class ContentionTest(unittest.TestCase):
