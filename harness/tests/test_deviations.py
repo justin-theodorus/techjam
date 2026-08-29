@@ -5,12 +5,15 @@ import unittest
 from harness import deviations
 from submission.src import dialogue
 from submission.src import memory
+from submission.src import orchestrate
+from submission.src import policy
 from submission.src import probe
 from submission.src import ranking
 from submission.src import slots
 from submission.src import routing
 
-MODULES = {"dialogue": dialogue, "memory": memory, "probe": probe,
+MODULES = {"dialogue": dialogue, "memory": memory,
+           "orchestrate": orchestrate, "policy": policy, "probe": probe,
            "ranking": ranking, "routing": routing, "slots": slots}
 
 
@@ -129,6 +132,16 @@ class SweepTableTest(unittest.TestCase):
             "memory.CARRY_ARMS": True,
             "memory.CARRY_BUCKETS": True,
             "memory.CARRY_POSITIVES": False,
+            # Phase 6Y. `ENABLED` ships on, so the mechanism row reads
+            # backwards; the three controls ship off and their rows read
+            # forwards (findings 3.50).
+            "orchestrate.ENABLED": True,
+            "orchestrate.SPENT_RATIO": 0.5,
+            "orchestrate.CANDIDATES": orchestrate.CANDIDATES,
+            "orchestrate.SCHEDULE": 0,
+            "orchestrate.BLIND": False,
+            "orchestrate.FRESHEST": False,
+            "policy.RECOVERY_TURNS": 0,
         }
         swept = {
             dotted
