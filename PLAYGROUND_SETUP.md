@@ -23,9 +23,26 @@ If you don't have the compressed file, you can fetch it from the Release page in
 
 ## Running the Playground
 
+First create a proper Python environment (the blank `conda create -n techjam` env is missing Python):
+
+```bash
+conda create -n techjam python=3.10 -y
+conda activate techjam
+python --version
+```
+
+Then run the app from the repo root so the package imports resolve correctly:
+
+```bash
+cd /Users/catherinekang/Documents/tiktoktechjam2026
+PYTHONPATH=. python techjam/playground.py
+```
+
+If you're already inside the `techjam/` folder, use:
+
 ```bash
 cd /Users/catherinekang/Documents/tiktoktechjam2026/techjam
-python playground.py
+PYTHONPATH=. python playground.py
 ```
 
 ### Interactive Session
@@ -86,8 +103,16 @@ Recommendations:
 → The agent is still learning; try a different query or check the agent logs
 
 **"ModuleNotFoundError"**
-→ Make sure you're in the techjam directory and PYTHONPATH is set:
+→ Make sure the environment has Python installed and the repo root is on `PYTHONPATH`:
 ```bash
-cd techjam
+conda create -n techjam python=3.10 -y
+conda activate techjam
+cd /Users/catherinekang/Documents/tiktoktechjam2026
+PYTHONPATH=. python techjam/playground.py
+```
+
+If you are already in the `techjam/` folder:
+```bash
+cd /Users/catherinekang/Documents/tiktoktechjam2026/techjam
 PYTHONPATH=. python playground.py
 ```

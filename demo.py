@@ -14,7 +14,12 @@ import random
 import sys
 from pathlib import Path
 
-# Import from techjam.submission so it works from either directory
+# Ensure the repo root is importable whether we launch from the project root
+# or from inside techjam/.
+repo_root = Path(__file__).resolve().parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 try:
     from techjam.submission.agent import Agent
 except ImportError:
