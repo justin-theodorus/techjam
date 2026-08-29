@@ -38,6 +38,11 @@ ACT_REJECT = "reject"
 # 1.000 hit@10 (findings 3.26).
 TARGETED_OVERRIDE = True
 
+# How many consecutive answered questions may add nothing before the session is
+# treated as stagnating. Two, because one uninformative answer is ordinary and
+# two in a row is a pattern (`policy.STAGNATION`).
+STAGNATION_TURNS = 2
+
 # Whether "I don't have an additional preference for X" retires only X, or the
 # whole session.
 #
@@ -86,6 +91,13 @@ class SessionState:
     pivoted: bool = False
     exhausted: bool = False
     refused: tuple[str, ...] = ()
+    # The arms the customer actually declined to answer, as opposed to the ones
+    # they simply had nothing further to say about. `refused` merges both,
+    # because `probe` treats them identically: neither is worth asking again.
+    # The dialogue policy must not, so the narrower reading is kept apart.
+    declined: tuple[str, ...] = ()
+    # How many answered questions in a row have added no new constraint.
+    idle: int = 0
     slots: tuple[slots_module.Slot, ...] = ()
     turn: int = 0
     pivot_turn: int = 0
@@ -172,8 +184,10 @@ def update(
     constraints = tuple(slot.value for slot in slots)
 
     refused = state.refused
+    declined = state.declined
     if parsed.boundary_refusal and asked:
         refused = _merge(refused, (asked,))
+        declined = _merge(declined, (asked,))
 
     exhausted = state.exhausted or parsed.exhausted
     spent = parsed.exhausted_arm or asked
@@ -192,6 +206,8 @@ def update(
         pivoted=state.pivoted or parsed.pivot,
         exhausted=exhausted,
         refused=refused,
+        declined=declined,
+        idle=_idle(state, parsed, slots, asked),
         slots=slots,
         turn=turn,
         pivot_turn=turn if parsed.pivot else state.pivot_turn,
@@ -203,6 +219,28 @@ def update(
         # hits the health line counts).
         shown=frozenset() if parsed.pivot else state.shown,
     )
+
+
+def _idle(
+    state: SessionState,
+    parsed: ParsedTurn,
+    slots: tuple[slots_module.Slot, ...],
+    asked: str | None,
+) -> int:
+    """Returns how many answered questions in a row have added nothing.
+
+    Counted only where a question was actually asked, so an opening message
+    that happens to disclose nothing is not mistaken for an unhelpful answer.
+    A replacement resets the count: the session has just learned something,
+    even though the constraint list may be no longer than it was.
+    """
+    if parsed.pivot:
+        return 0
+    if asked is None:
+        return state.idle
+    if len(slots) > len(state.slots):
+        return 0
+    return state.idle + 1
 
 
 def _is_specific(asked: str | None) -> bool:

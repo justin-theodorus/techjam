@@ -22,16 +22,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from submission.src import dialogue
+from submission.src import policy as policy_module
 from submission.src import ranking
 
-PRECISION = "precision"
-DISCOVERY = "discovery"
-RECOVERY = "recovery"
-BOUNDARY = "boundary"
+# The route names are the policy names. Retrieval is one of the four decisions
+# a policy makes, so it does not get a second vocabulary for the same states.
+PRECISION = policy_module.PRECISION
+DISCOVERY = policy_module.DISCOVERY
+RECOVERY = policy_module.RECOVERY
+BOUNDARY = policy_module.BOUNDARY
 
-# A bare material word matches roughly half its bucket, so a session holding
-# only one constraint has not yet said anything that separates products.
-MIN_PRECISION_CONSTRAINTS = 2
+MIN_PRECISION_CONSTRAINTS = policy_module.MIN_PRECISION_CONSTRAINTS
 
 # How much weight the popularity prior carries on each route. The argument for
 # splitting it is good: a session that has said little has said nothing worth
@@ -46,6 +47,16 @@ MIN_PRECISION_CONSTRAINTS = 2
 # (findings 3.26).
 DISCOVERY_ALPHA = ranking.ALPHA
 PRECISION_ALPHA = ranking.ALPHA
+
+# Every route-conditional sweep before Phase 6W was taken while the precision
+# branch was unreachable on hard sets: a scoped exhaustion put the spent arm
+# into `state.refused`, and this module read that as a refusal, so 74% of
+# `compound_hard` turns took the boundary branch and precision took 1.6%
+# (findings 3.46). The branch now reads `state.declined`, which holds only
+# arms the customer actually declined. The verdicts above stand -- all four
+# routes ship at identical constants, so no score depended on which one was
+# named -- but any *re-measurement* of a route-conditional setting is taken
+# over a different population than 3.26, 3.30 and 3.35 were.
 
 # Whether a redirect restarts the turn budget for narrowing the slate. The
 # argument for it is that a replacement resets what the customer has told us.
@@ -96,21 +107,35 @@ class Route:
     diversity: float | None = None
 
 
-def choose(state: dialogue.SessionState) -> Route:
+def choose(
+    state: dialogue.SessionState, policy: str | None = None
+) -> Route:
     """Returns the retrieval policy for the turn about to be served.
+
+    The branch is `policy.select`'s, not a second copy of it. Two of the six
+    policies name no retrieval of their own -- stagnation and coverage change
+    what is asked and how it is worded, not where candidates come from -- so
+    they fall through to the shared constants, which is what every other route
+    is running at anyway (findings 3.44).
 
     Args:
         state: The session after the latest message has been folded in.
+        policy: The policy already selected for this turn, if the caller has
+          one. Absent, it is selected here, so the module stays usable on its
+          own.
     """
-    if state.pivoted:
+    name = policy or policy_module.select(state)
+    if name == RECOVERY:
         return _recovery(state)
-    if state.scenario == dialogue.BOUNDARY or state.refused:
+    if name == BOUNDARY:
         return Route(BOUNDARY, ranking.ALPHA, ranking.MAX_DEFER_TURNS)
-    if len(state.constraints) >= MIN_PRECISION_CONSTRAINTS:
+    if name == PRECISION:
         return Route(
             PRECISION, PRECISION_ALPHA, ranking.MAX_DEFER_TURNS,
             PRECISION_DENSE,
         )
+    if name in (policy_module.STAGNATION, policy_module.COVERAGE):
+        return Route(name, ranking.ALPHA, ranking.MAX_DEFER_TURNS)
     return Route(
         DISCOVERY, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS,
         DISCOVERY_DENSE, DISCOVERY_REACH, diversity=DISCOVERY_DIVERSITY,

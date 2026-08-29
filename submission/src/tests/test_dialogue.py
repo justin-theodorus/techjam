@@ -379,3 +379,62 @@ class SlotTypingTest(unittest.TestCase):
 
         self.assertEqual(state.constraints, ("cotton",))
         self.assertEqual(state.slots[0].attribute, slots.DEFAULT)
+
+
+class DeclinedAndIdleTest(unittest.TestCase):
+    """The two fields the dialogue policy reads, and why they are separate."""
+
+    def test_a_refusal_is_both_refused_and_declined(self) -> None:
+        state = dialogue.update(
+            dialogue.SessionState(),
+            dialogue.ParsedTurn(boundary_refusal=True),
+            asked="material",
+        )
+
+        self.assertIn("material", state.refused)
+        self.assertIn("material", state.declined)
+
+    def test_running_dry_on_an_arm_is_refused_but_not_declined(self) -> None:
+        """The distinction findings 3.46 measured. `refused` stops the probe
+        asking again; only `declined` means the customer said no."""
+        state = dialogue.update(
+            dialogue.SessionState(),
+            dialogue.ParsedTurn(exhausted=True, exhausted_arm="material"),
+            asked="material",
+        )
+
+        self.assertIn("material", state.refused)
+        self.assertEqual(state.declined, ())
+
+    def test_an_answer_that_adds_nothing_counts_toward_stagnation(self) -> None:
+        state = dialogue.update(
+            dialogue.SessionState(),
+            dialogue.ParsedTurn(),
+            asked="material",
+        )
+
+        self.assertEqual(state.idle, 1)
+
+    def test_an_answer_that_adds_something_resets_the_count(self) -> None:
+        state = dialogue.SessionState(idle=2)
+        folded = dialogue.update(
+            state, dialogue.ParsedTurn(constraints=("cotton",)),
+            asked="material",
+        )
+
+        self.assertEqual(folded.idle, 0)
+
+    def test_an_opening_message_is_not_an_unhelpful_answer(self) -> None:
+        """Nothing was asked, so nothing was answered badly."""
+        state = dialogue.update(dialogue.SessionState(),
+                                dialogue.ParsedTurn(), asked=None)
+
+        self.assertEqual(state.idle, 0)
+
+    def test_a_redirect_resets_the_count(self) -> None:
+        state = dialogue.SessionState(idle=3)
+        folded = dialogue.update(
+            state, dialogue.ParsedTurn(pivot=True), asked="material"
+        )
+
+        self.assertEqual(folded.idle, 0)
