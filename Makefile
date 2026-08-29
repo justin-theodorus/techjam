@@ -1,7 +1,7 @@
 PYTHON ?= python3
 export PYTHONPATH := .
 
-.PHONY: eval quick baseline split risk paraphrase sessions deviations dense llm trace misses diff test data clean
+.PHONY: eval quick baseline split risk paraphrase sessions memory deviations dense llm trace misses diff test data clean
 
 # Score the agent, write runs/latest.json, diff against the previous run.
 eval:
@@ -33,6 +33,12 @@ paraphrase:
 # where does the shipped agent's rank land on it?
 sessions:
 	$(PYTHON) -m harness.sessions
+
+# Pillar III: does a returning shopper convert faster than a first-time one?
+# Not a score. The organizer's harness sends no shopper twice, so this is the
+# only place per-person memory is readable at all (findings 3.33).
+memory:
+	$(PYTHON) -m harness.returning
 
 # Every component with a live switch, re-swept against sets that still have
 # headroom for them to move. Sixteen of them since Phase 6V.
