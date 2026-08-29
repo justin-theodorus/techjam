@@ -139,7 +139,7 @@ def expected_yield(
 
     scores = {}
     for arm in ARMS:
-        if arm in state.refused:
+        if arm in state.refused or arm in state.carried_arms:
             scores[arm] = 0.0
             continue
         seen = heard.get(arm, 0)
@@ -256,7 +256,13 @@ def specific(
 
     scores = {}
     for arm in ARMS:
-        if arm in state.refused or arm in avoid or not coverage.get(arm):
+        # `carried_arms` is what earlier visits established this person will
+        # not answer, and it reads here rather than in `policy` on purpose:
+        # a remembered dimension should stop a question, not open the session
+        # in the `boundary` stance (findings 3.46).
+        if arm in state.refused or arm in state.carried_arms:
+            continue
+        if arm in avoid or not coverage.get(arm):
             continue
         scores[arm] = (
             (coverage[arm] / len(pool))

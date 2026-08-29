@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 from submission.src import catalog as catalog_module
 from submission.src import dialogue
 from submission.src import llm
+from submission.src import memory
 from submission.src import policy as policy_module
 from submission.src import probe
 from submission.src import ranking
@@ -42,6 +44,7 @@ class Agent:
             self.catalog.slate_of(self.catalog.popular[:ranking.SLATE_SIZE])
         )
         self._session_id: str | None = None
+        self._memory = memory.Store()
         self._state = dialogue.SessionState()
         self._parsed = dialogue.ParsedTurn()
         self._contenders = 0
@@ -66,7 +69,7 @@ class Agent:
         """
         self._profile_ids = self._tags_of(user_profile)
         self._session_id = session_id
-        self._state = dialogue.SessionState()
+        self._state = memory.seed(self._memory.recall())
         self._parsed = dialogue.ParsedTurn()
         self._contenders = 0
         self._head = 0
@@ -74,6 +77,29 @@ class Agent:
         self._policy = policy_module.DISCOVERY
         self._usage = llm.no_usage()
         self.debug = {}
+
+    def remember(self, shopper_id: str | None) -> None:
+        """Names the shopper the next session belongs to.
+
+        The published contract has no field for this: `reset_request` and
+        `user_profile` are both closed with `additionalProperties: false` and
+        `session_id` is a fresh uuid per session, so an identity can only reach
+        the agent through a caller that has one. Nothing on the organizer's
+        path does, which is what keeps the reported score untouched.
+
+        Args:
+            shopper_id: Who is shopping, or `None` for an anonymous session.
+        """
+        self._memory.remember(shopper_id)
+
+    def forget(self) -> None:
+        """Drops every remembered shopper.
+
+        A measurement re-scores many sets against one agent instance, so the
+        isolation between them has to be explicit or the first set's memory is
+        reported as the second set's result.
+        """
+        self._memory.forget()
 
     def respond(
         self, session_id: str, user_message: str, turn: int, top_k: int
@@ -162,10 +188,17 @@ class Agent:
     ) -> tuple[str, ...]:
         """Reads the message, updates state, and ranks a fresh slate."""
         if session_id != self._session_id:
+            # A turn for a session nobody opened means the caller lost track
+            # of the boundary, so the identity it last named cannot be
+            # vouched for either. Drop it alongside the profile: attaching one
+            # shopper's memory to a stranger's session is the defect this
+            # whole layer is most likely to produce.
+            self._memory.remember(None)
             self.reset(session_id, {})
         parsed = understand.interpret(
             user_message, self.catalog.resolver, self._fast_path
         )
+        parsed = self._preferred(parsed)
         state = dialogue.update(
             self._state, parsed, self._asked, self.catalog.taxonomy
         )
@@ -187,6 +220,7 @@ class Agent:
         )
         asins = tuple(self.catalog.slate_of(served.indices))
         self._state = state.with_slate(asins)
+        self._memory.observe(self._state)
         self._parsed = parsed
         self._contenders = served.contenders
         self._head = served.head
@@ -194,6 +228,33 @@ class Agent:
         self._policy = policy
         self._record(state, parsed, route, served, asins)
         return asins
+
+    def _visits(self) -> int:
+        """How many earlier visits this shopper's record was built from."""
+        recalled = self._memory.recall()
+        return recalled.visits if recalled is not None else 0
+
+    def _preferred(self, parsed: dialogue.ParsedTurn) -> dialogue.ParsedTurn:
+        """Breaks an uncertain category read toward where this person shops.
+
+        A single bucket is not a tie: `category.Resolver.buckets` returns one
+        only when the message stated its name outright, and overriding that
+        would be reading memory over the customer. Anything wider is a near-tie
+        the resolver was about to break on coverage alone, so reordering it is
+        the whole of the read. `dialogue` latches the category at first sight,
+        so this can only ever move turn one.
+        """
+        weights = memory.affinity(self._memory.recall())
+        if not weights or len(parsed.buckets) < 2:
+            return parsed
+        ordered = sorted(
+            parsed.buckets, key=lambda key: -weights.get(key, 0.0)
+        )
+        if tuple(ordered) == parsed.buckets:
+            return parsed
+        return dataclasses.replace(
+            parsed, buckets=tuple(ordered), category=ordered[0]
+        )
 
     def _tags_of(self, user_profile: object) -> frozenset[int]:
         """Returns indexable token ids for the profile's preference tags."""
@@ -279,6 +340,8 @@ class Agent:
             "declined": "/".join(state.declined) or "-",
             "idle": state.idle,
             "shown": len(state.shown),
+            "visits": self._visits(),
+            "carried": len(state.carried) + len(state.carried_arms),
             "alpha": route.alpha,
             "dense": self._dense_of(route),
             "reach": route.reach,

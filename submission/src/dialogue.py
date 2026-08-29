@@ -104,6 +104,14 @@ class SessionState:
     confidence: float = 0.0
     last_slate: tuple[str, ...] = ()
     shown: frozenset[str] = frozenset()
+    # What earlier visits by this shopper left behind, kept apart from what
+    # this one has established. Merging them would make `constraints` non-empty
+    # before the customer has spoken, and `policy` and `ranking.personalised`
+    # both read that. `submission.src.memory` fills these; with no identity
+    # they stay empty and every property below reads exactly as it always has.
+    carried: tuple[slots_module.Slot, ...] = ()
+    carried_arms: tuple[str, ...] = ()
+    carried_positives: tuple[str, ...] = ()
 
     @property
     def query_text(self) -> str:
@@ -115,17 +123,25 @@ class SessionState:
         (findings 3.31).
         """
         if not self.slots:
-            return " ".join(self.constraints)
+            # The gate on carried positives, and the whole of it: a remembered
+            # preference speaks only where the customer has not, which is the
+            # shape `ranking.PROFILE_MAX_CONSTRAINTS` settled on after the
+            # ungated version measured -0.1125 (findings 3.30).
+            return " ".join((*self.constraints, *self.carried_positives))
         return " ".join(
             slot.value for slot in self.slots if not slot.negated
         )
 
     @property
     def excluded_text(self) -> str:
-        """The refused constraint text, cue stripped, as one BM25 query."""
+        """The refused constraint text, cue stripped, as one BM25 query.
+
+        Carried refusals join it ungated, because subtracting a product this
+        person has already turned down cannot promote the wrong one.
+        """
         return " ".join(
             slots_module.polarity(slot.value)[1]
-            for slot in self.slots if slot.negated
+            for slot in (*self.slots, *self.carried) if slot.negated
         )
 
     @property
@@ -218,6 +234,12 @@ def update(
         # target and may well be it (findings 3.4, the 65 wasted pre-pivot
         # hits the health line counts).
         shown=frozenset() if parsed.pivot else state.shown,
+        # A pivot outranks memory for the same reason it outranks this
+        # session's own slots: cross-session evidence is older than the
+        # preference the customer has just said was wrong.
+        carried=() if parsed.pivot else state.carried,
+        carried_arms=() if parsed.pivot else state.carried_arms,
+        carried_positives=() if parsed.pivot else state.carried_positives,
     )
 
 
