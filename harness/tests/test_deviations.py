@@ -115,6 +115,11 @@ class SweepTableTest(unittest.TestCase):
             "probe.SPECIFIC_ARMS": True,
             "probe.WILDCARD_FALLBACK_RATIO": 0.2,
             "dialogue.SCOPED_EXHAUSTION": True,
+            # Phase 6W's two dialogue switches. Both ship on, so their sweeps
+            # also read backwards (findings 3.47).
+            "probe.STAGNATION_ESCAPE": True,
+            "probe.COVERAGE_SILENCE": True,
+            "dialogue.STAGNATION_TURNS": 2,
         }
         swept = {
             dotted

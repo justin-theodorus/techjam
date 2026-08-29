@@ -50,6 +50,7 @@ from harness import sessions
 # package in exactly one place.
 MODULES = {
     "dialogue": "submission.src.dialogue",
+    "policy": "submission.src.policy",
     "probe": "submission.src.probe",
     "ranking": "submission.src.ranking",
     "routing": "submission.src.routing",
@@ -194,6 +195,19 @@ DEVIATIONS = (
             ("w=0.25", {"ranking.NEGATION_WEIGHT": 0.25}),
             ("w=1", {"ranking.NEGATION_WEIGHT": 1.0}),
             ("w=2", {"ranking.NEGATION_WEIGHT": 2.0}),
+        ),
+    ),
+    Deviation(
+        "dialogue_policy",
+        "probe.STAGNATION_ESCAPE / probe.COVERAGE_SILENCE",
+        "both True (live)",
+        (
+            ("no escape", {"probe.STAGNATION_ESCAPE": False}),
+            ("no silence", {"probe.COVERAGE_SILENCE": False}),
+            ("neither", {"probe.STAGNATION_ESCAPE": False,
+                         "probe.COVERAGE_SILENCE": False}),
+            ("escape n1", {"dialogue.STAGNATION_TURNS": 1}),
+            ("escape n3", {"dialogue.STAGNATION_TURNS": 3}),
         ),
     ),
     Deviation(

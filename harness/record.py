@@ -13,7 +13,7 @@ from __future__ import annotations
 import traceback
 from time import perf_counter
 
-MESSAGE_PREVIEW_CHARS = 160
+MESSAGE_PREVIEW_CHARS = 320
 
 
 def _asin_of(item: object) -> str:
