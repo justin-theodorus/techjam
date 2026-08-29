@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 
-from techjam.harness.diff import load
+from harness.diff import load
 
 DEFAULT_ARTIFACT = "runs/latest.json"
 MESSAGE_WIDTH = 96

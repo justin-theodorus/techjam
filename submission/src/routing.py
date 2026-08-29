@@ -21,19 +21,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from techjam.submission.src import dialogue
-from techjam.submission.src import ranking
+from submission.src import dialogue
+from submission.src import policy as policy_module
+from submission.src import ranking
 
-PRECISION = "precision"
-DISCOVERY = "discovery"
-RECOVERY = "recovery"
-BOUNDARY = "boundary"
-STAGNATION = "stagnation"
-COVERAGE = "coverage"
+# The route names are the policy names. Retrieval is one of the four decisions
+# a policy makes, so it does not get a second vocabulary for the same states.
+PRECISION = policy_module.PRECISION
+DISCOVERY = policy_module.DISCOVERY
+RECOVERY = policy_module.RECOVERY
+BOUNDARY = policy_module.BOUNDARY
+STAGNATION = policy_module.STAGNATION
+COVERAGE = policy_module.COVERAGE
 
-# A bare material word matches roughly half its bucket, so a session holding
-# only one constraint has not yet said anything that separates products.
-MIN_PRECISION_CONSTRAINTS = 2
+MIN_PRECISION_CONSTRAINTS = policy_module.MIN_PRECISION_CONSTRAINTS
 
 # How much weight the popularity prior carries on each route. The argument for
 # splitting it is good: a session that has said little has said nothing worth
@@ -48,6 +49,16 @@ MIN_PRECISION_CONSTRAINTS = 2
 # (findings 3.26).
 DISCOVERY_ALPHA = ranking.ALPHA
 PRECISION_ALPHA = ranking.ALPHA
+
+# Every route-conditional sweep before Phase 6W was taken while the precision
+# branch was unreachable on hard sets: a scoped exhaustion put the spent arm
+# into `state.refused`, and this module read that as a refusal, so 74% of
+# `compound_hard` turns took the boundary branch and precision took 1.6%
+# (findings 3.46). The branch now reads `state.declined`, which holds only
+# arms the customer actually declined. The verdicts above stand -- all four
+# routes ship at identical constants, so no score depended on which one was
+# named -- but any *re-measurement* of a route-conditional setting is taken
+# over a different population than 3.26, 3.30 and 3.35 were.
 
 # Whether a redirect restarts the turn budget for narrowing the slate. The
 # argument for it is that a replacement resets what the customer has told us.
@@ -85,35 +96,6 @@ DISCOVERY_REACH = 0
 # instrument for the same idea (findings 3.43).
 DISCOVERY_DIVERSITY: float | None = None
 
-# Policy scores are deliberately small, additive signals rather than calibrated
-# probabilities. They answer "which controller should speak next?" from the
-# evidence the session already exposes: constraints, refusals, pivots, turn
-# pressure and the previous retrieval's uncertainty.
-LARGE_POOL = 250
-SMALL_POOL = 50
-STAGNATION_TURN = 5
-COVERAGE_TURN = 8
-UNCERTAIN_CONTENDERS = 5
-
-_HARD_ATTRIBUTES = frozenset((
-    "material", "color", "size", "style", "use_case", "budget", "brand",
-    "category",
-))
-
-_POLICY_ORDER = (
-    RECOVERY, BOUNDARY, COVERAGE, PRECISION, STAGNATION, DISCOVERY,
-)
-
-
-@dataclass(frozen=True)
-class PolicyDecision:
-    """The policy scorer's turn-level decision."""
-
-    name: str
-    scores: tuple[tuple[str, float], ...]
-    confidence: float
-    margin: float
-
 
 @dataclass(frozen=True)
 class Route:
@@ -132,214 +114,58 @@ class Route:
 
 def choose(
     state: dialogue.SessionState,
+    policy: str | None = None,
+    *,
+    decision: policy_module.PolicyDecision | None = None,
     candidate_count: int = 0,
     previous_contenders: int = 0,
 ) -> Route:
     """Returns the retrieval policy for the turn about to be served.
 
+    The branch is `policy.select`'s, not a second copy of it. Two of the six
+    policies name no retrieval of their own -- stagnation and coverage change
+    what is asked and how it is worded, not where candidates come from -- so
+    they fall through to the shared constants, which is what every other route
+    is running at anyway (findings 3.44).
+
     Args:
         state: The session after the latest message has been folded in.
+        policy: The policy already selected for this turn, if the caller has
+          one. Absent, it is selected here, so the module stays usable on its
+          own.
+        decision: The scored policy decision, if the caller already computed
+          it for this turn.
         candidate_count: Size of the resolved catalog pool, when known.
         previous_contenders: Previous turn's near-tie count, when known.
     """
-    decision = decide(state, candidate_count, previous_contenders)
-    if decision.name == RECOVERY:
+    decision = decision or policy_module.decide(
+        state, candidate_count, previous_contenders
+    )
+    name = policy or decision.name
+    if name == RECOVERY:
         return _recovery(state, decision)
-    if decision.name == BOUNDARY:
+    if name == BOUNDARY:
+        return _route(BOUNDARY, ranking.ALPHA, ranking.MAX_DEFER_TURNS,
+                      decision)
+    if name == PRECISION:
         return _route(
-            BOUNDARY, ranking.ALPHA, ranking.MAX_DEFER_TURNS, decision
+            PRECISION, PRECISION_ALPHA, ranking.MAX_DEFER_TURNS,
+            decision, dense_weight=PRECISION_DENSE,
         )
-    if decision.name == COVERAGE:
-        return _route(COVERAGE, ranking.ALPHA, 0, decision)
-    if decision.name == PRECISION:
-        return _route(
-            PRECISION, PRECISION_ALPHA, ranking.MAX_DEFER_TURNS, decision,
-            dense_weight=PRECISION_DENSE,
-        )
-    if decision.name == STAGNATION:
-        return _route(
-            STAGNATION, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS, decision,
-            dense_weight=DISCOVERY_DENSE, reach=DISCOVERY_REACH,
-            diversity=DISCOVERY_DIVERSITY,
-        )
+    if name in (STAGNATION, COVERAGE):
+        return _route(name, ranking.ALPHA, ranking.MAX_DEFER_TURNS, decision)
     return _route(
-        DISCOVERY, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS, decision,
-        dense_weight=DISCOVERY_DENSE, reach=DISCOVERY_REACH,
+        DISCOVERY, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS,
+        decision, dense_weight=DISCOVERY_DENSE, reach=DISCOVERY_REACH,
         diversity=DISCOVERY_DIVERSITY,
     )
-
-
-def decide(
-    state: dialogue.SessionState,
-    candidate_count: int = 0,
-    previous_contenders: int = 0,
-) -> PolicyDecision:
-    """Scores every dialogue policy and returns the current winner.
-
-    This is the dynamic context-programming layer in miniature: no policy is
-    fixed for a session. The same anonymous user can begin in discovery, move
-    into precision, hit a boundary refusal, and later recover after a pivot.
-    """
-    raw = {
-        RECOVERY: _recovery_score(state),
-        BOUNDARY: _boundary_score(state),
-        COVERAGE: _coverage_score(state),
-        PRECISION: _precision_score(state, candidate_count),
-        STAGNATION: _stagnation_score(state, previous_contenders),
-        DISCOVERY: _discovery_score(state, candidate_count,
-                                    previous_contenders),
-    }
-    scores = tuple(
-        (name, round(max(0.0, raw[name]), 3)) for name in _POLICY_ORDER
-    )
-    ranked_scores = sorted(
-        scores, key=lambda item: (item[1], -_POLICY_ORDER.index(item[0])),
-        reverse=True,
-    )
-    top_name, top_score = ranked_scores[0]
-    second_score = ranked_scores[1][1] if len(ranked_scores) > 1 else 0.0
-    total = sum(score for _, score in scores)
-    confidence = top_score / total if total > 0.0 else 0.0
-    return PolicyDecision(
-        top_name,
-        scores,
-        round(confidence, 3),
-        round(top_score - second_score, 3),
-    )
-
-
-def _recovery_score(state: dialogue.SessionState) -> float:
-    score = 0.0
-    if state.pivoted or state.scenario == dialogue.OVERRIDE:
-        score += 1.6
-    if state.pivot_turn == state.turn and state.turn:
-        score += 0.4
-    if state.superseded:
-        score += 0.3
-    return score
-
-
-def _boundary_score(state: dialogue.SessionState) -> float:
-    score = 0.05
-    if state.scenario == dialogue.BOUNDARY:
-        score += 1.25
-    if state.refused:
-        score += 1.25
-    if state.refused and state.turn >= 5:
-        score += 0.2
-    if state.pivoted:
-        score -= 0.4
-    return score
-
-
-def _coverage_score(state: dialogue.SessionState) -> float:
-    score = 0.0
-    if state.exhausted:
-        score += 1.7
-    if state.turn >= COVERAGE_TURN:
-        score += 1.0 + min(0.3, _constraint_count(state) * 0.1)
-    if len(state.shown) >= ranking.SLATE_SIZE * 3:
-        score += 0.2
-    if state.pivot_turn == state.turn and state.turn:
-        score -= 0.8
-    return score
-
-
-def _precision_score(
-    state: dialogue.SessionState, candidate_count: int = 0
-) -> float:
-    constraints = _constraint_count(state)
-    hard = _hard_attribute_count(state)
-    score = 0.2
-    score += min(0.9, constraints * 0.45)
-    score += min(0.4, hard * 0.2)
-    if state.scenario == dialogue.BUYING:
-        score += 0.25
-    if constraints and state.turn >= 2:
-        score += 0.15
-    if 0 < candidate_count <= SMALL_POOL:
-        score += 0.25
-    if not constraints:
-        score -= 0.5
-    if state.refused:
-        score -= 0.5
-    if state.pivoted:
-        score -= 0.8
-    if state.exhausted:
-        score -= 0.4
-    return score
-
-
-def _stagnation_score(
-    state: dialogue.SessionState, previous_contenders: int = 0
-) -> float:
-    constraints = _constraint_count(state)
-    score = 0.0
-    if state.turn >= STAGNATION_TURN and constraints <= 1:
-        score += 1.1
-    if state.turn >= STAGNATION_TURN + 1 and constraints <= 1:
-        score += 0.35
-    if len(state.shown) >= ranking.SLATE_SIZE * 2 and constraints <= 1:
-        score += 0.35
-    if previous_contenders > UNCERTAIN_CONTENDERS:
-        score += 0.25
-    if constraints >= MIN_PRECISION_CONSTRAINTS:
-        score -= 0.8
-    if state.refused or state.pivoted or state.exhausted:
-        score -= 0.9
-    return score
-
-
-def _discovery_score(
-    state: dialogue.SessionState,
-    candidate_count: int = 0,
-    previous_contenders: int = 0,
-) -> float:
-    constraints = _constraint_count(state)
-    score = 0.4
-    if constraints == 0:
-        score += 0.55
-    if constraints < MIN_PRECISION_CONSTRAINTS:
-        score += 0.3
-    if state.scenario in (dialogue.UNKNOWN, dialogue.EXPLORING):
-        score += 0.25
-    if state.turn <= 2:
-        score += 0.1
-    if candidate_count >= LARGE_POOL or not state.pool_keys:
-        score += 0.2
-    if previous_contenders > UNCERTAIN_CONTENDERS:
-        score += 0.2
-    if constraints >= MIN_PRECISION_CONSTRAINTS:
-        score -= 0.45
-    if state.refused:
-        score -= 0.55
-    if state.pivoted:
-        score -= 0.8
-    if state.exhausted:
-        score -= 0.5
-    return score
-
-
-def _constraint_count(state: dialogue.SessionState) -> int:
-    if state.slots:
-        return sum(1 for slot in state.slots if not slot.negated)
-    return len(state.constraints)
-
-
-def _hard_attribute_count(state: dialogue.SessionState) -> int:
-    if not state.slots:
-        return min(_constraint_count(state), MIN_PRECISION_CONSTRAINTS)
-    return len({
-        slot.attribute for slot in state.slots
-        if not slot.negated and slot.attribute in _HARD_ATTRIBUTES
-    })
 
 
 def _route(
     name: str,
     alpha: float,
     defer_turns: int,
-    decision: PolicyDecision,
+    decision: policy_module.PolicyDecision,
     dense_weight: float | None = None,
     reach: int = 0,
     diversity: float | None = None,
@@ -358,11 +184,10 @@ def _route(
 
 
 def _recovery(
-    state: dialogue.SessionState, decision: PolicyDecision | None = None
+    state: dialogue.SessionState,
+    decision: policy_module.PolicyDecision,
 ) -> Route:
     """Returns the policy for a session that has just been redirected."""
-    if decision is None:
-        decision = decide(state)
     return _route(
         RECOVERY,
         ranking.ALPHA,

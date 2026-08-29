@@ -20,7 +20,7 @@ REPO_PARENT = REPO_ROOT.parent
 if str(REPO_PARENT) not in sys.path:
     sys.path.insert(0, str(REPO_PARENT))
 
-from techjam.submission.agent import Agent
+from submission.agent import Agent
 
 
 def load_sample_profile() -> dict:

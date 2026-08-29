@@ -17,3 +17,5 @@ tests/test_5core_builder.py
 tests/test_organizer_pipeline.py
 *.log
 runs/
+CONSTRAINT_FOCUS_PLAN.md
+*.md

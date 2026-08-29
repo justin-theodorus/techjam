@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from techjam.submission.src import slots as slots_module
+from submission.src import slots as slots_module
 
 UNKNOWN = "unknown"
 BUYING = "buying"
@@ -37,6 +37,11 @@ ACT_REJECT = "reject"
 # both. Worth +0.016 overall and it converts every override session, 0.900 to
 # 1.000 hit@10 (findings 3.26).
 TARGETED_OVERRIDE = True
+
+# How many consecutive answered questions may add nothing before the session is
+# treated as stagnating. Two, because one uninformative answer is ordinary and
+# two in a row is a pattern (`policy.STAGNATION`).
+STAGNATION_TURNS = 2
 
 # Whether "I don't have an additional preference for X" retires only X, or the
 # whole session.
@@ -72,6 +77,10 @@ class ParsedTurn:
     exhausted_arm: str | None = None
     act: str = ACT_UNKNOWN
     confidence: float = 0.0
+    # Which half of the intent card each constraint came from, index-aligned
+    # with `constraints`. Only the templates that say so fill this in; empty
+    # means every arriving constraint is `UNKNOWN_STRENGTH`.
+    strengths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -86,12 +95,27 @@ class SessionState:
     pivoted: bool = False
     exhausted: bool = False
     refused: tuple[str, ...] = ()
+    # The arms the customer actually declined to answer, as opposed to the ones
+    # they simply had nothing further to say about. `refused` merges both,
+    # because `probe` treats them identically: neither is worth asking again.
+    # The dialogue policy must not, so the narrower reading is kept apart.
+    declined: tuple[str, ...] = ()
+    # How many answered questions in a row have added no new constraint.
+    idle: int = 0
     slots: tuple[slots_module.Slot, ...] = ()
     turn: int = 0
     pivot_turn: int = 0
     confidence: float = 0.0
     last_slate: tuple[str, ...] = ()
     shown: frozenset[str] = frozenset()
+    # What earlier visits by this shopper left behind, kept apart from what
+    # this one has established. Merging them would make `constraints` non-empty
+    # before the customer has spoken, and `policy` and `ranking.personalised`
+    # both read that. `submission.src.memory` fills these; with no identity
+    # they stay empty and every property below reads exactly as it always has.
+    carried: tuple[slots_module.Slot, ...] = ()
+    carried_arms: tuple[str, ...] = ()
+    carried_positives: tuple[str, ...] = ()
 
     @property
     def query_text(self) -> str:
@@ -103,17 +127,55 @@ class SessionState:
         (findings 3.31).
         """
         if not self.slots:
-            return " ".join(self.constraints)
+            # The gate on carried positives, and the whole of it: a remembered
+            # preference speaks only where the customer has not, which is the
+            # shape `ranking.PROFILE_MAX_CONSTRAINTS` settled on after the
+            # ungated version measured -0.1125 (findings 3.30).
+            return " ".join((*self.constraints, *self.carried_positives))
         return " ".join(
             slot.value for slot in self.slots if not slot.negated
         )
 
     @property
+    def hard_constraints(self) -> tuple[str, ...]:
+        """What the customer stated as a requirement, in arrival order.
+
+        Named for the reference simulator's own field so a later reader does
+        not have to translate. Nothing in the shipped agent reads this: routing
+        retrieval on the split was measured against an oracle labeller and is
+        worth nothing (see `slots.HARD`). It is recorded because the parse
+        already knows it and re-deriving it later would cost more than keeping
+        it.
+        """
+        return tuple(
+            slot.value for slot in self.slots
+            if slot.strength == slots_module.HARD
+        )
+
+    @property
+    def soft_preferences(self) -> tuple[str, ...]:
+        """What the customer stated as a preference, in arrival order.
+
+        Only the override opening is provably soft. A disclosure reply lists
+        `[*hard, *soft]` in order but never says where the boundary fell, so
+        those constraints stay `UNKNOWN_STRENGTH` and appear in neither tuple
+        rather than being guessed into one.
+        """
+        return tuple(
+            slot.value for slot in self.slots
+            if slot.strength == slots_module.SOFT
+        )
+
+    @property
     def excluded_text(self) -> str:
-        """The refused constraint text, cue stripped, as one BM25 query."""
+        """The refused constraint text, cue stripped, as one BM25 query.
+
+        Carried refusals join it ungated, because subtracting a product this
+        person has already turned down cannot promote the wrong one.
+        """
         return " ".join(
             slots_module.polarity(slot.value)[1]
-            for slot in self.slots if slot.negated
+            for slot in (*self.slots, *self.carried) if slot.negated
         )
 
     @property
@@ -159,7 +221,7 @@ def update(
           what was said, just not what it was about.
     """
     turn = state.turn + 1
-    arriving = _typed(parsed.constraints, turn, taxonomy)
+    arriving = _typed(parsed.constraints, turn, taxonomy, parsed.strengths)
 
     if parsed.pivot:
         kept = _survivors(state.slots, arriving)
@@ -172,8 +234,10 @@ def update(
     constraints = tuple(slot.value for slot in slots)
 
     refused = state.refused
+    declined = state.declined
     if parsed.boundary_refusal and asked:
         refused = _merge(refused, (asked,))
+        declined = _merge(declined, (asked,))
 
     exhausted = state.exhausted or parsed.exhausted
     spent = parsed.exhausted_arm or asked
@@ -192,6 +256,8 @@ def update(
         pivoted=state.pivoted or parsed.pivot,
         exhausted=exhausted,
         refused=refused,
+        declined=declined,
+        idle=_idle(state, parsed, slots, asked),
         slots=slots,
         turn=turn,
         pivot_turn=turn if parsed.pivot else state.pivot_turn,
@@ -202,7 +268,35 @@ def update(
         # target and may well be it (findings 3.4, the 65 wasted pre-pivot
         # hits the health line counts).
         shown=frozenset() if parsed.pivot else state.shown,
+        # A pivot outranks memory for the same reason it outranks this
+        # session's own slots: cross-session evidence is older than the
+        # preference the customer has just said was wrong.
+        carried=() if parsed.pivot else state.carried,
+        carried_arms=() if parsed.pivot else state.carried_arms,
+        carried_positives=() if parsed.pivot else state.carried_positives,
     )
+
+
+def _idle(
+    state: SessionState,
+    parsed: ParsedTurn,
+    slots: tuple[slots_module.Slot, ...],
+    asked: str | None,
+) -> int:
+    """Returns how many answered questions in a row have added nothing.
+
+    Counted only where a question was actually asked, so an opening message
+    that happens to disclose nothing is not mistaken for an unhelpful answer.
+    A replacement resets the count: the session has just learned something,
+    even though the constraint list may be no longer than it was.
+    """
+    if parsed.pivot:
+        return 0
+    if asked is None:
+        return state.idle
+    if len(slots) > len(state.slots):
+        return 0
+    return state.idle + 1
 
 
 def _is_specific(asked: str | None) -> bool:
@@ -214,15 +308,22 @@ def _typed(
     constraints: tuple[str, ...],
     turn: int,
     taxonomy: slots_module.Taxonomy | None,
+    strengths: tuple[str, ...] = (),
 ) -> tuple[slots_module.Slot, ...]:
-    """Attaches an attribute and a turn to each arriving constraint."""
+    """Attaches an attribute, a turn and a card half to each constraint."""
+    def strength(index: int) -> str:
+        if index < len(strengths):
+            return strengths[index]
+        return slots_module.UNKNOWN_STRENGTH
+
     if taxonomy is None:
         return tuple(
             slots_module.Slot(slots_module.DEFAULT, value, turn,
-                              slots_module.polarity(value)[0])
-            for value in constraints
+                              slots_module.polarity(value)[0],
+                              strength(index), index)
+            for index, value in enumerate(constraints)
         )
-    return taxonomy.slots(constraints, turn)
+    return taxonomy.slots(constraints, turn, strengths)
 
 
 def _survivors(

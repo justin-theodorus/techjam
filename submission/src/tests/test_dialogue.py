@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from techjam.submission.src import category
-from techjam.submission.src import dialogue
-from techjam.submission.src import ranking
-from techjam.submission.src import slots
-from techjam.submission.src import understand
+from submission.src import category
+from submission.src import dialogue
+from submission.src import ranking
+from submission.src import slots
+from submission.src import understand
 
 RESOLVER = category.build(
     ("Shoes Sneakers", "St. John Dresses", "Novelty Clothing")
@@ -379,3 +379,147 @@ class SlotTypingTest(unittest.TestCase):
 
         self.assertEqual(state.constraints, ("cotton",))
         self.assertEqual(state.slots[0].attribute, slots.DEFAULT)
+
+
+class DeclinedAndIdleTest(unittest.TestCase):
+    """The two fields the dialogue policy reads, and why they are separate."""
+
+    def test_a_refusal_is_both_refused_and_declined(self) -> None:
+        state = dialogue.update(
+            dialogue.SessionState(),
+            dialogue.ParsedTurn(boundary_refusal=True),
+            asked="material",
+        )
+
+        self.assertIn("material", state.refused)
+        self.assertIn("material", state.declined)
+
+    def test_running_dry_on_an_arm_is_refused_but_not_declined(self) -> None:
+        """The distinction findings 3.46 measured. `refused` stops the probe
+        asking again; only `declined` means the customer said no."""
+        state = dialogue.update(
+            dialogue.SessionState(),
+            dialogue.ParsedTurn(exhausted=True, exhausted_arm="material"),
+            asked="material",
+        )
+
+        self.assertIn("material", state.refused)
+        self.assertEqual(state.declined, ())
+
+    def test_an_answer_that_adds_nothing_counts_toward_stagnation(self) -> None:
+        state = dialogue.update(
+            dialogue.SessionState(),
+            dialogue.ParsedTurn(),
+            asked="material",
+        )
+
+        self.assertEqual(state.idle, 1)
+
+    def test_an_answer_that_adds_something_resets_the_count(self) -> None:
+        state = dialogue.SessionState(idle=2)
+        folded = dialogue.update(
+            state, dialogue.ParsedTurn(constraints=("cotton",)),
+            asked="material",
+        )
+
+        self.assertEqual(folded.idle, 0)
+
+    def test_an_opening_message_is_not_an_unhelpful_answer(self) -> None:
+        """Nothing was asked, so nothing was answered badly."""
+        state = dialogue.update(dialogue.SessionState(),
+                                dialogue.ParsedTurn(), asked=None)
+
+        self.assertEqual(state.idle, 0)
+
+    def test_a_redirect_resets_the_count(self) -> None:
+        state = dialogue.SessionState(idle=3)
+        folded = dialogue.update(
+            state, dialogue.ParsedTurn(pivot=True), asked="material"
+        )
+
+        self.assertEqual(folded.idle, 0)
+
+
+class ConstraintStrengthTest(unittest.TestCase):
+    """The card half each constraint came from, recorded and unread.
+
+    Two guarantees. Liveness: the templates that know which half they drew
+    from actually say so, because state nothing reads rots into a field that
+    is always `unknown` without anyone noticing. Inertness: recording it does
+    not reach the ranking, which is the whole basis on which it ships -- the
+    split was measured against an oracle labeller and is worth nothing
+    (see `slots.HARD`).
+    """
+
+    def _drive(self, messages: list[str]) -> dialogue.SessionState:
+        state = dialogue.SessionState()
+        for message in messages:
+            state = dialogue.update(
+                state, understand.interpret(message, RESOLVER), "other",
+                TAXONOMY,
+            )
+        return state
+
+    def test_a_buying_opening_states_a_hard_constraint(self) -> None:
+        state = self._drive([BUYING_OPENING])
+
+        self.assertEqual(state.hard_constraints, ("100% Leather",))
+        self.assertEqual(state.soft_preferences, ())
+
+    def test_an_override_opening_states_a_soft_preference(self) -> None:
+        state = self._drive([OVERRIDE_OPENING])
+
+        self.assertEqual(state.soft_preferences, ("Ribbed knit cuffs",))
+        self.assertEqual(state.hard_constraints, ())
+
+    def test_the_replacement_a_pivot_sends_is_hard(self) -> None:
+        state = self._drive([OVERRIDE_OPENING, PIVOT])
+
+        self.assertIn("cotton", state.hard_constraints)
+
+    def test_a_disclosure_is_left_unlabelled_but_keeps_its_order(self) -> None:
+        # `customer_reply` lists matches in `[*hard, *soft]` order but never
+        # says where the boundary fell, so a label here would be a guess.
+        state = self._drive([EXPLORING_OPENING, DISCLOSURE])
+
+        self.assertEqual(state.hard_constraints, ())
+        self.assertEqual(state.soft_preferences, ())
+        disclosed = [s for s in state.slots if s.turn == 2]
+        self.assertEqual(
+            [(s.value, s.strength, s.reply_index) for s in disclosed],
+            [("cotton", slots.UNKNOWN_STRENGTH, 0),
+             ("color: black", slots.UNKNOWN_STRENGTH, 1)],
+        )
+
+    def test_browsing_labels_nothing_because_it_states_nothing(self) -> None:
+        state = self._drive([EXPLORING_OPENING])
+
+        self.assertEqual(state.hard_constraints, ())
+        self.assertEqual(state.soft_preferences, ())
+
+    def test_strength_never_reaches_the_query(self) -> None:
+        messages = [BUYING_OPENING, DISCLOSURE, PIVOT]
+        labelled = self._drive(messages)
+
+        stripped = dialogue.SessionState()
+        for message in messages:
+            parsed = understand.interpret(message, RESOLVER)
+            stripped = dialogue.update(
+                stripped,
+                dialogue.ParsedTurn(
+                    category=parsed.category, buckets=parsed.buckets,
+                    constraints=parsed.constraints, pivot=parsed.pivot,
+                    scenario_hint=parsed.scenario_hint,
+                    boundary_refusal=parsed.boundary_refusal,
+                    exhausted=parsed.exhausted,
+                    exhausted_arm=parsed.exhausted_arm,
+                    act=parsed.act, confidence=parsed.confidence,
+                ),
+                "other", TAXONOMY,
+            )
+
+        self.assertNotEqual(labelled.hard_constraints, ())
+        self.assertEqual(stripped.hard_constraints, ())
+        self.assertEqual(labelled.query_text, stripped.query_text)
+        self.assertEqual(labelled.constraints, stripped.constraints)
+        self.assertEqual(labelled.excluded_text, stripped.excluded_text)

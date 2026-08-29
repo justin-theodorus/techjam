@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import statistics
 
-from techjam.evaluator.local_evaluator import normalize_recommendations
+from evaluator.local_evaluator import normalize_recommendations
 
-from techjam.submission.src import llm
+from submission.src import llm
 
 PIVOT_PREFIX = "Actually, ignore my earlier preference."
 DISCLOSURE_PREFIX = "For that, what matters is: "

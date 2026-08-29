@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from techjam.harness import deviations
-from techjam.submission.src import dialogue
-from techjam.submission.src import probe
-from techjam.submission.src import ranking
-from techjam.submission.src import slots
-from techjam.submission.src import routing
+from harness import deviations
+from submission.src import dialogue
+from submission.src import memory
+from submission.src import probe
+from submission.src import ranking
+from submission.src import slots
+from submission.src import routing
 
-MODULES = {"dialogue": dialogue, "probe": probe, "ranking": ranking,
-           "routing": routing, "slots": slots}
+MODULES = {"dialogue": dialogue, "memory": memory, "probe": probe,
+           "ranking": ranking, "routing": routing, "slots": slots}
 
 
 def constant(dotted: str):
@@ -115,6 +116,19 @@ class SweepTableTest(unittest.TestCase):
             "probe.SPECIFIC_ARMS": True,
             "probe.WILDCARD_FALLBACK_RATIO": 0.2,
             "dialogue.SCOPED_EXHAUSTION": True,
+            # Phase 6W's two dialogue switches. Both ship on, so their sweeps
+            # also read backwards (findings 3.47).
+            "probe.STAGNATION_ESCAPE": True,
+            "probe.COVERAGE_SILENCE": True,
+            "dialogue.STAGNATION_TURNS": 2,
+            # Phase 6W's memory gates. The first four ship on and read
+            # backwards; `CARRY_POSITIVES` is the one shipped off, and none of
+            # them can fire without an identity the organizer never supplies.
+            "memory.ENABLED": True,
+            "memory.CARRY_REFUSALS": True,
+            "memory.CARRY_ARMS": True,
+            "memory.CARRY_BUCKETS": True,
+            "memory.CARRY_POSITIVES": False,
         }
         swept = {
             dotted

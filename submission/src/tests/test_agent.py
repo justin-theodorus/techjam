@@ -4,12 +4,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from techjam.submission.src import agent as agent_module
-from techjam.submission.src import probe
-from techjam.submission.src import ranking
-from techjam.submission.src.tests import fixtures
+from submission.src import agent as agent_module
+from submission.src import probe
+from submission.src import dialogue
+from submission.src import memory
+from submission.src import ranking
+from submission.src.tests import fixtures
 
 OPENING = f"I'm looking for {fixtures.SNEAKER_BUCKET}, but I'm still exploring."
+# The evaluator's own boundary refusal, restated rather than imported:
+# the submission bundle ships without `evaluator/`.
+REFUSAL = ("I don't have a preference for material; "
+           "please use your judgment.")
 
 # `local_evaluator.ALLOWED_ATTRIBUTES`, restated rather than imported: the
 # submission bundle ships without the evaluator.
@@ -221,3 +227,85 @@ class PayloadTest(unittest.TestCase):
 
         self.assertIn(fixtures.SNEAKER_BUCKET.lower(),
                       response_body["message"].lower())
+
+
+class MemoryTest(unittest.TestCase):
+    """Per-person memory, and the guarantee that it is off by default.
+
+    The organizer's harness never names a shopper, so the reported score must
+    not depend on this existing. That is asserted here as "not reached" rather
+    than as "neutral", which is the stronger of the two claims (findings 3.33).
+    """
+
+    def setUp(self) -> None:
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.path = fixtures.write_catalog(Path(root.name))
+        self.agent = agent_module.Agent(str(self.path))
+
+    def _drive(self, session: str, *messages: str) -> list[dict]:
+        self.agent.reset(session, {})
+        return [
+            self.agent.respond(session, message, turn, 10)
+            for turn, message in enumerate(messages, start=1)
+        ]
+
+    def test_no_identity_opens_at_the_default_state(self) -> None:
+        self.agent.reset("s1", {})
+
+        self.assertEqual(self.agent._state, dialogue.SessionState())
+
+    def test_an_unnamed_run_serves_what_an_unnamed_run_served(self) -> None:
+        first = self._drive("s1", OPENING, "cotton upper")
+        second = self._drive("s2", OPENING, "cotton upper")
+
+        self.assertEqual(first, second)
+
+    def test_the_same_profile_twice_is_two_strangers(self) -> None:
+        """The blurb repeats across public sessions; identity does not."""
+        profile = {"preference_tags": ["cotton"]}
+        self.agent.reset("s1", profile)
+        self.agent.respond("s1", OPENING, 1, 10)
+
+        self.agent.reset("s2", profile)
+
+        self.assertEqual(self.agent._state, dialogue.SessionState())
+
+    def test_a_returning_shopper_opens_on_what_it_learned(self) -> None:
+        self.agent.remember("alice")
+        self._drive("s1", OPENING, REFUSAL)
+
+        self.agent.remember("alice")
+        self.agent.reset("s2", {})
+
+        self.assertTrue(self.agent._state.carried_arms)
+
+    def test_forgetting_returns_the_agent_to_an_unnamed_one(self) -> None:
+        self.agent.remember("alice")
+        self._drive("s1", OPENING, REFUSAL)
+
+        self.agent.forget()
+        self.agent.reset("s2", {})
+
+        self.assertEqual(self.agent._state, dialogue.SessionState())
+
+    def test_memory_switched_off_serves_the_unnamed_slate(self) -> None:
+        self.addCleanup(setattr, memory, "ENABLED", memory.ENABLED)
+        self.agent.remember("alice")
+        self._drive("s1", OPENING, REFUSAL)
+        memory.ENABLED = False
+
+        self.agent.remember("alice")
+        self.agent.reset("s2", {})
+
+        self.assertEqual(self.agent._state, dialogue.SessionState())
+
+    def test_a_session_nobody_opened_is_shopped_anonymously(self) -> None:
+        """The caller lost the boundary, so its last identity is not trusted."""
+        self.agent.remember("alice")
+        self._drive("s1", OPENING, REFUSAL)
+        self.agent.remember("alice")
+
+        self.agent.respond("s2", OPENING, 1, 10)
+
+        self.assertEqual(self.agent._state.carried_arms, ())

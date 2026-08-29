@@ -6,7 +6,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from techjam.submission.src import outcome_tracker
+from submission.src import outcome_tracker
 
 
 class PersonaAnalyzer:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from time import perf_counter
 
-from techjam.submission.src import llm
+from submission.src import llm
 
 
 CARDS = (

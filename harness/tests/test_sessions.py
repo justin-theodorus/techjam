@@ -10,12 +10,12 @@ import sys
 import tempfile
 import unittest
 
-from techjam.evaluator import local_evaluator
+from evaluator import local_evaluator
 
-from techjam.harness import session_axes
-from techjam.harness import session_sets
-from techjam.harness import sessions
-from techjam.harness.tests import fixtures
+from harness import session_axes
+from harness import session_sets
+from harness import sessions
+from harness.tests import fixtures
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "docs" / "agent_api_contract.json"
@@ -408,6 +408,7 @@ class ValidationTest(unittest.TestCase):
                     recipe.name, recipe.seed, count=40, mix=recipe.mix,
                     pool=recipe.pool, weights=recipe.weights, text=recipe.text,
                     profiles=recipe.profiles, dialogue=recipe.dialogue,
+                    shoppers=recipe.shoppers,
                 )
                 for row in build(trimmed):
                     sessions.validate_row(row, self.catalog_ids)
@@ -527,6 +528,8 @@ class ManifestTest(unittest.TestCase):
                          {r.profiles for r in session_sets.MANIFEST}),
             "dialogue": (session_axes.DIALOGUE_NAMES,
                          {r.dialogue for r in session_sets.MANIFEST}),
+            "shoppers": (session_axes.SHOPPER_NAMES,
+                         {r.shoppers for r in session_sets.MANIFEST}),
         }
         for axis, (declared, used) in axes.items():
             with self.subTest(axis=axis):
@@ -537,9 +540,9 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(mirror.name, "mirror")
         self.assertEqual(
             (mirror.pool, mirror.weights, mirror.text, mirror.profiles,
-             mirror.dialogue, mirror.mix),
+             mirror.dialogue, mirror.shoppers, mirror.mix),
             ("any", "size-biased", "verbatim", "public", "default",
-             session_axes.SCENARIO_MIX),
+             "distinct", session_axes.SCENARIO_MIX),
         )
         self.assertFalse(mirror.is_authored)
 
@@ -595,3 +598,192 @@ class DifficultyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdentityAxisTest(unittest.TestCase):
+    """The sixth axis: who each row belongs to.
+
+    It is the only axis that relates rows to each other, and the only
+    instrument on which per-person memory is readable at all, because the
+    organizer's harness never sends the same shopper twice (findings 3.33).
+    """
+
+    def _returning(self, **overrides) -> list[dict]:
+        recipe = session_axes.Recipe(
+            "r", 23, count=36, mix=(("boundary", 1),), shoppers="returning",
+            **overrides,
+        )
+        return build(recipe)
+
+    def test_the_neutral_axis_names_nobody(self) -> None:
+        """Which is what leaves the twenty-two frozen sets untouched."""
+        for row in build(session_axes.Recipe("n", 1, count=12)):
+            self.assertNotIn("shopper_id", row)
+            self.assertNotIn("visit", row)
+
+    def test_the_neutral_axis_places_the_drawn_targets_unchanged(self) -> None:
+        products = catalog_rows()
+        facts = session_axes.survey(products)
+        targets = products[:9]
+
+        layout = session_axes.shoppers(
+            "distinct", targets, facts, products, "size-biased",
+            random.Random(1))
+
+        self.assertEqual(list(layout.targets), targets)
+        self.assertEqual(set(layout.ids), {None})
+
+    def test_a_returning_row_carries_both_identity_keys(self) -> None:
+        for row in self._returning():
+            self.assertIsInstance(row["shopper_id"], str)
+            self.assertGreaterEqual(row["visit"], 1)
+
+    def test_visit_order_follows_row_order(self) -> None:
+        """A memory must be written by an earlier row to be read by a later."""
+        visits = [row["visit"] for row in self._returning()]
+
+        self.assertEqual(visits, sorted(visits))
+
+    def test_every_shopper_visits_once_per_block(self) -> None:
+        seen: dict[str, list[int]] = {}
+        for row in self._returning():
+            seen.setdefault(row["shopper_id"], []).append(row["visit"])
+
+        expected = list(range(1, session_axes.VISITS_PER_SHOPPER + 1))
+        for shopper, visits in seen.items():
+            with self.subTest(shopper=shopper):
+                self.assertEqual(visits, expected)
+
+    def test_a_shoppers_visits_stay_inside_one_bucket(self) -> None:
+        """Memory is only worth carrying if the visits relate."""
+        products = {row["parent_asin"]: row for row in catalog_rows()}
+        facts = session_axes.survey(catalog_rows())
+        seen: dict[str, set[str]] = {}
+        for row in self._returning():
+            target = products[row["ground_truth"]["parent_asin"]]
+            seen.setdefault(row["shopper_id"], set()).add(
+                facts.bucket[str(target["parent_asin"])])
+
+        for shopper, buckets in seen.items():
+            with self.subTest(shopper=shopper):
+                self.assertEqual(len(buckets), 1)
+
+    def test_a_shopper_never_revisits_its_own_target(self) -> None:
+        """A repeat target hands the later visit a session already converted."""
+        seen: dict[str, list[str]] = {}
+        for row in self._returning():
+            seen.setdefault(row["shopper_id"], []).append(
+                row["ground_truth"]["parent_asin"])
+
+        for shopper, targets in seen.items():
+            with self.subTest(shopper=shopper):
+                self.assertEqual(len(set(targets)), len(targets))
+
+    def test_the_axis_never_moves_the_profiles(self) -> None:
+        """The profile generator is set-level; an extra draw would shift it."""
+        plain = session_axes.Recipe("r", 23, count=36, mix=(("boundary", 1),))
+        named = session_axes.Recipe(
+            "r", 23, count=36, mix=(("boundary", 1),), shoppers="returning")
+
+        self.assertEqual(
+            [row["user_profile"] for row in build(plain)],
+            [row["user_profile"] for row in build(named)],
+        )
+
+    def test_a_shoppers_visits_share_index_parity(self) -> None:
+        """So `run.split_samples` cannot deal one visit into each half."""
+        rows = self._returning()
+        positions: dict[str, set[int]] = {}
+        for index, row in enumerate(rows):
+            positions.setdefault(row["shopper_id"], set()).add(index % 2)
+
+        for shopper, parities in positions.items():
+            with self.subTest(shopper=shopper):
+                self.assertEqual(len(parities), 1)
+
+    def test_an_unknown_axis_value_is_refused(self) -> None:
+        products = catalog_rows()
+        facts = session_axes.survey(products)
+
+        with self.assertRaises(ValueError):
+            session_axes.shoppers(
+                "nobody", products[:6], facts, products, "size-biased",
+                random.Random(1))
+
+    def test_a_half_named_row_is_refused(self) -> None:
+        """A row naming a shopper but no visit reads as a first visit always."""
+        catalog_ids = {row["parent_asin"] for row in catalog_rows()}
+        row = self._returning()[0]
+
+        for dropped in ("shopper_id", "visit"):
+            with self.subTest(dropped=dropped):
+                broken = {key: value for key, value in row.items()
+                          if key != dropped}
+                with self.assertRaises(ValueError):
+                    sessions.validate_row(broken, catalog_ids)
+
+    def test_a_visit_number_must_be_a_real_int(self) -> None:
+        catalog_ids = {row["parent_asin"] for row in catalog_rows()}
+        row = self._returning()[0]
+
+        for visit in (True, 0, "1", 1.0):
+            with self.subTest(visit=visit):
+                with self.assertRaises(ValueError):
+                    sessions.validate_row(
+                        {**row, "visit": visit}, catalog_ids)
+
+
+class ShopperRefusalTest(unittest.TestCase):
+    """The axis refuses a set it cannot build correctly.
+
+    Bucket locality is the one property the returning-shopper set exists to
+    have: a shopper whose visits span two departments has nothing true to
+    remember, so the visit blocks stop being comparable. Padding from another
+    bucket would keep generation working and quietly destroy that, which is
+    worse than a loud failure at generation time.
+    """
+
+    def _product(self, asin: str, bucket: str) -> dict:
+        return {
+            "parent_asin": asin,
+            "categories": ["Clothing, Shoes & Jewelry", "Women", bucket],
+            "rating_number": 10,
+            "features": [],
+            "title": "a thing",
+        }
+
+    def test_a_bucket_too_small_for_three_visits_is_refused(self) -> None:
+        alone = [self._product("A", "Tiny")]
+        rest = [self._product(f"B{number}", "Other") for number in range(9)]
+        candidates = alone + rest
+        facts = session_axes.survey(candidates)
+
+        with self.assertRaises(ValueError):
+            session_axes.shoppers(
+                "returning", alone + rest[:8], facts, candidates,
+                "size-biased", random.Random(1))
+
+    def test_a_set_shorter_than_one_shopper_is_refused(self) -> None:
+        """Previously an IndexError from an under-sized layout."""
+        candidates = [
+            self._product(f"B{number}", "Other") for number in range(9)
+        ]
+        facts = session_axes.survey(candidates)
+
+        with self.assertRaises(ValueError):
+            session_axes.shoppers(
+                "returning", candidates[:2], facts, candidates,
+                "size-biased", random.Random(1))
+
+    def test_the_neutral_axis_accepts_a_set_of_any_size(self) -> None:
+        """`distinct` names nobody, so no visit count has to divide it."""
+        candidates = [
+            self._product(f"B{number}", "Other") for number in range(9)
+        ]
+        facts = session_axes.survey(candidates)
+
+        layout = session_axes.shoppers(
+            "distinct", candidates[:2], facts, candidates, "size-biased",
+            random.Random(1))
+
+        self.assertEqual(len(layout.targets), 2)

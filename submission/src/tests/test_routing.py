@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from techjam.submission.src import dialogue
-from techjam.submission.src import ranking
-from techjam.submission.src import routing
-from techjam.submission.src import slots
+from submission.src import dialogue
+from submission.src import ranking
+from submission.src import routing
+from submission.src import slots
 
 
 class RouteChoiceTest(unittest.TestCase):
@@ -25,9 +25,24 @@ class RouteChoiceTest(unittest.TestCase):
         self.assertEqual(routing.choose(state).name, routing.PRECISION)
 
     def test_a_refusal_routes_to_boundary(self) -> None:
-        state = dialogue.SessionState(refused=(slots.MATERIAL,))
+        state = dialogue.SessionState(declined=(slots.MATERIAL,))
 
         self.assertEqual(routing.choose(state).name, routing.BOUNDARY)
+
+    def test_running_dry_on_one_arm_is_not_a_refusal(self) -> None:
+        """A scoped exhaustion retires an arm; it does not decline one.
+
+        `dialogue.SCOPED_EXHAUSTION` puts the spent arm into `refused` so the
+        probe stops asking about it. Reading that as a refusal routed 74% of
+        `compound_hard` turns to boundary and left the precision branch firing
+        on 1.6% of them (findings 3.46).
+        """
+        state = dialogue.SessionState(
+            refused=(slots.MATERIAL,),
+            constraints=("cotton", "color: black"),
+        )
+
+        self.assertEqual(routing.choose(state).name, routing.PRECISION)
 
     def test_a_redirect_routes_to_recovery_and_outranks_the_rest(self) -> None:
         state = dialogue.SessionState(
@@ -54,7 +69,7 @@ class PolicyScoringTest(unittest.TestCase):
         states = (
             dialogue.SessionState(),
             dialogue.SessionState(constraints=("cotton", "color: black")),
-            dialogue.SessionState(refused=(slots.MATERIAL,)),
+            dialogue.SessionState(declined=(slots.MATERIAL,)),
             dialogue.SessionState(pivoted=True, pivot_turn=4),
         )
         names = [routing.choose(state).name for state in states]
@@ -102,7 +117,7 @@ class NeutralityTest(unittest.TestCase):
         states = (
             dialogue.SessionState(),
             dialogue.SessionState(constraints=("a", "b")),
-            dialogue.SessionState(refused=("material",)),
+            dialogue.SessionState(declined=("material",)),
             dialogue.SessionState(pivoted=True, pivot_turn=3),
         )
         for state in states:
@@ -120,7 +135,7 @@ class NeutralityTest(unittest.TestCase):
             dialogue.SessionState(),
             dialogue.SessionState(constraints=("a",)),
             dialogue.SessionState(constraints=("a", "b")),
-            dialogue.SessionState(refused=("material",)),
+            dialogue.SessionState(declined=("material",)),
             dialogue.SessionState(pivoted=True, pivot_turn=3),
         )
         for state in states:
@@ -179,7 +194,7 @@ class RouteDiversityTest(unittest.TestCase):
             dialogue.SessionState(),
             dialogue.SessionState(constraints=("a",)),
             dialogue.SessionState(constraints=("a", "b")),
-            dialogue.SessionState(refused=("material",)),
+            dialogue.SessionState(declined=("material",)),
             dialogue.SessionState(pivoted=True, pivot_turn=3),
         )
         for state in states:
@@ -201,7 +216,7 @@ class RouteDiversityTest(unittest.TestCase):
                     self.assertEqual(routing.choose(state).diversity, 0.5)
             spared = (
                 dialogue.SessionState(constraints=("a", "b")),
-                dialogue.SessionState(refused=("material",)),
+                dialogue.SessionState(declined=("material",)),
                 dialogue.SessionState(pivoted=True, pivot_turn=2),
             )
             for state in spared:

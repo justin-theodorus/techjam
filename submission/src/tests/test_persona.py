@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from techjam.submission.src import context_distiller
-from techjam.submission.src import dialogue
-from techjam.submission.src import intent_detector
-from techjam.submission.src import outcome_tracker
-from techjam.submission.src import persona_classifier
-from techjam.submission.src import response
+from submission.src import context_distiller
+from submission.src import dialogue
+from submission.src import intent_detector
+from submission.src import outcome_tracker
+from submission.src import persona_classifier
+from submission.src import response
 
 
 class IntentTest(unittest.TestCase):

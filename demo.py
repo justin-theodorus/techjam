@@ -16,7 +16,7 @@ from pathlib import Path
 
 # Import from techjam.submission so it works from either directory
 try:
-    from techjam.submission.agent import Agent
+    from submission.agent import Agent
 except ImportError:
     from submission.agent import Agent
 

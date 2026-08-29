@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from techjam.submission.src import persona_classifier
-from techjam.submission.src import context_distiller
+from submission.src import persona_classifier
+from submission.src import context_distiller
 
 
 # Persona-specific LLM prompt templates

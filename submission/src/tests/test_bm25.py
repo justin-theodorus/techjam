@@ -4,11 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from techjam.submission.src import bm25
-from techjam.submission.src import catalog as catalog_module
-from techjam.submission.src import dialogue
-from techjam.submission.src import ranking
-from techjam.submission.src.tests import fixtures
+from submission.src import bm25
+from submission.src import catalog as catalog_module
+from submission.src import dialogue
+from submission.src import ranking
+from submission.src.tests import fixtures
 
 
 class Bm25Test(unittest.TestCase):

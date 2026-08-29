@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from techjam.harness.report import SCENARIO_ORDER, technical_score
+from harness.report import SCENARIO_ORDER, technical_score
 
 METRIC_KEYS = ("hit_rate_at_10", "mrr", "mttc")
 LISTED_FLIPS = 12

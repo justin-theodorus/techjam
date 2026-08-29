@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
-from techjam.submission.src import catalog as catalog_module
-from techjam.submission.src import dialogue
-from techjam.submission.src import llm
-from techjam.submission.src import probe
-from techjam.submission.src import ranking
-from techjam.submission.src import response
-from techjam.submission.src import routing
-from techjam.submission.src import text
-from techjam.submission.src import understand
-from techjam.submission.src import outcome_tracker
+from submission.src import catalog as catalog_module
+from submission.src import dialogue
+from submission.src import llm
+from submission.src import memory
+from submission.src import outcome_tracker
+from submission.src import policy as policy_module
+from submission.src import probe
+from submission.src import ranking
+from submission.src import response
+from submission.src import routing
+from submission.src import text
+from submission.src import understand
 
 
 class Agent:
@@ -45,11 +48,13 @@ class Agent:
             self.catalog.slate_of(self.catalog.popular[:ranking.SLATE_SIZE])
         )
         self._session_id: str | None = None
+        self._memory = memory.Store()
         self._state = dialogue.SessionState()
         self._parsed = dialogue.ParsedTurn()
         self._contenders = 0
         self._head = 0
         self._asked: str | None = None
+        self._policy = policy_module.DISCOVERY
         self._profile_ids: frozenset[int] = frozenset()
         self._user_profile: dict = {}
         self._scores: tuple[float, ...] = ()
@@ -77,15 +82,39 @@ class Agent:
             dict(user_profile) if isinstance(user_profile, dict) else {}
         )
         self._session_id = session_id
-        self._state = dialogue.SessionState()
+        self._state = memory.seed(self._memory.recall())
         self._parsed = dialogue.ParsedTurn()
         self._contenders = 0
         self._head = 0
         self._asked = None
+        self._policy = policy_module.DISCOVERY
         self._usage = llm.no_usage()
         self.debug = {}
         self._conversation_history = []
         self._pending_persona = None
+
+    def remember(self, shopper_id: str | None) -> None:
+        """Names the shopper the next session belongs to.
+
+        The published contract has no field for this: `reset_request` and
+        `user_profile` are both closed with `additionalProperties: false` and
+        `session_id` is a fresh uuid per session, so an identity can only reach
+        the agent through a caller that has one. Nothing on the organizer's
+        path does, which is what keeps the reported score untouched.
+
+        Args:
+            shopper_id: Who is shopping, or `None` for an anonymous session.
+        """
+        self._memory.remember(shopper_id)
+
+    def forget(self) -> None:
+        """Drops every remembered shopper.
+
+        A measurement re-scores many sets against one agent instance, so the
+        isolation between them has to be explicit or the first set's memory is
+        reported as the second set's result.
+        """
+        self._memory.forget()
 
     def respond(
         self, session_id: str, user_message: str, turn: int, top_k: int
@@ -94,22 +123,20 @@ class Agent:
         try:
             recommendations = self._serve(session_id, user_message, top_k)
             asked = probe.choose(
-                self._state, self.catalog.taxonomy, self.catalog
+                self._state, self.catalog.taxonomy, self.catalog,
+                self._policy,
             )
             candidate_count = len(self.catalog.pool(self._state.pool_keys))
-            self._resolve_pending(user_message, self._contenders)
+            self._resolve_pending(user_message, candidate_count)
             persona_match = response.select_persona(
                 self._state, user_message, self._conversation_history,
                 candidate_count, self._user_profile,
             )
-
-            message = response.compose_with_persona(
+            message = response.compose(
                 self._state, self._parsed, self._contenders,
-                self._head, len(recommendations), asked, user_message,
-                conversation_history=self._conversation_history,
-                candidate_count=candidate_count,
-                user_profile=self._user_profile,
-                persona_match=persona_match,
+                self._head, len(recommendations), asked,
+                self._policy,
+                probe.options(self._state, self.catalog, asked),
             )
 
             self._conversation_history.append((user_message, message))
@@ -129,6 +156,7 @@ class Agent:
             # too: a non-string discards the recommendations with it.
             recommendations = self._degrade(error)
             asked = probe.WILDCARD
+            self._policy = policy_module.DISCOVERY
             message = response.FALLBACK
             self._scores = (0.0,) * len(recommendations)
         self._usage = self._take_usage()
@@ -212,10 +240,17 @@ class Agent:
     ) -> tuple[str, ...]:
         """Reads the message, updates state, and ranks a fresh slate."""
         if session_id != self._session_id:
+            # A turn for a session nobody opened means the caller lost track
+            # of the boundary, so the identity it last named cannot be
+            # vouched for either. Drop it alongside the profile: attaching one
+            # shopper's memory to a stranger's session is the defect this
+            # whole layer is most likely to produce.
+            self._memory.remember(None)
             self.reset(session_id, {})
         parsed = understand.interpret(
             user_message, self.catalog.resolver, self._fast_path
         )
+        parsed = self._preferred(parsed)
         state = dialogue.update(
             self._state, parsed, self._asked, self.catalog.taxonomy
         )
@@ -224,9 +259,11 @@ class Agent:
             size = top_k
 
         candidate_count = len(self.catalog.pool(state.pool_keys))
-        route = routing.choose(
-            state, candidate_count, previous_contenders=self._contenders
+        decision = policy_module.decide(
+            state, candidate_count, self._contenders
         )
+        policy = decision.name
+        route = routing.choose(state, policy, decision=decision)
         served = ranking.slate(
             self.catalog, state, size,
             alpha=route.alpha,
@@ -239,12 +276,41 @@ class Agent:
         )
         asins = tuple(self.catalog.slate_of(served.indices))
         self._state = state.with_slate(asins)
+        self._memory.observe(self._state)
         self._parsed = parsed
         self._contenders = served.contenders
         self._head = served.head
         self._scores = tuple(served.scores)
+        self._policy = policy
         self._record(state, parsed, route, served, asins)
         return asins
+
+    def _visits(self) -> int:
+        """How many earlier visits this shopper's record was built from."""
+        recalled = self._memory.recall()
+        return recalled.visits if recalled is not None else 0
+
+    def _preferred(self, parsed: dialogue.ParsedTurn) -> dialogue.ParsedTurn:
+        """Breaks an uncertain category read toward where this person shops.
+
+        A single bucket is not a tie: `category.Resolver.buckets` returns one
+        only when the message stated its name outright, and overriding that
+        would be reading memory over the customer. Anything wider is a near-tie
+        the resolver was about to break on coverage alone, so reordering it is
+        the whole of the read. `dialogue` latches the category at first sight,
+        so this can only ever move turn one.
+        """
+        weights = memory.affinity(self._memory.recall())
+        if not weights or len(parsed.buckets) < 2:
+            return parsed
+        ordered = sorted(
+            parsed.buckets, key=lambda key: -weights.get(key, 0.0)
+        )
+        if tuple(ordered) == parsed.buckets:
+            return parsed
+        return dataclasses.replace(
+            parsed, buckets=tuple(ordered), category=ordered[0]
+        )
 
     def _tags_of(self, user_profile: object) -> frozenset[int]:
         """Returns indexable token ids for the profile's preference tags."""
@@ -309,6 +375,7 @@ class Agent:
         """
         self.debug = {
             "scenario": state.scenario,
+            "policy": self._policy,
             "route": route.name,
             "act": parsed.act,
             "read": round(parsed.confidence, 2),
@@ -326,7 +393,11 @@ class Agent:
             "head": served.head,
             "contenders": served.contenders,
             "refused": state.excluded_text or "-",
+            "declined": "/".join(state.declined) or "-",
+            "idle": state.idle,
             "shown": len(state.shown),
+            "visits": self._visits(),
+            "carried": len(state.carried) + len(state.carried_arms),
             "alpha": route.alpha,
             "dense": self._dense_of(route),
             "reach": route.reach,

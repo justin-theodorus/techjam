@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from techjam.harness.record import RecordingAgent
+from harness.record import RecordingAgent
 
 
 class CrashingAgent:

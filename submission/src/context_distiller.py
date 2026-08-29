@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from techjam.submission.src import dialogue
+from submission.src import dialogue
 
 
 @dataclass

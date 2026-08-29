@@ -11,7 +11,7 @@ Requires network: No. Bundled assets: none. Third-party packages: none.
 
 from __future__ import annotations
 
-from techjam.submission.src import agent as _agent
+from submission.src import agent as _agent
 
 Agent = _agent.Agent
 

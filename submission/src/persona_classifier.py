@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from techjam.submission.src import dialogue
-from techjam.submission.src import intent_detector
+from submission.src import dialogue
+from submission.src import intent_detector
 
 
 class PersonaType(Enum):

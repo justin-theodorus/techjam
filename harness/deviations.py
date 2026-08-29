@@ -36,20 +36,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
-from techjam.evaluator import local_evaluator
+from evaluator import local_evaluator
 
-from techjam.harness import analysis
-from techjam.harness import diff
-from techjam.harness import record
-from techjam.harness import run
-from techjam.harness import session_axes
-from techjam.harness import sessions
+from harness import analysis
+from harness import diff
+from harness import identity
+from harness import record
+from harness import run
+from harness import session_axes
+from harness import sessions
 
 # Where the modules holding the switches live. Resolved from a string so the
 # sweep table below stays data, and so `harness/` keeps naming the submission
 # package in exactly one place.
 MODULES = {
     "dialogue": "submission.src.dialogue",
+    "memory": "submission.src.memory",
+    "policy": "submission.src.policy",
     "probe": "submission.src.probe",
     "ranking": "submission.src.ranking",
     "routing": "submission.src.routing",
@@ -197,6 +200,19 @@ DEVIATIONS = (
         ),
     ),
     Deviation(
+        "dialogue_policy",
+        "probe.STAGNATION_ESCAPE / probe.COVERAGE_SILENCE",
+        "both True (live)",
+        (
+            ("no escape", {"probe.STAGNATION_ESCAPE": False}),
+            ("no silence", {"probe.COVERAGE_SILENCE": False}),
+            ("neither", {"probe.STAGNATION_ESCAPE": False,
+                         "probe.COVERAGE_SILENCE": False}),
+            ("escape n1", {"dialogue.STAGNATION_TURNS": 1}),
+            ("escape n3", {"dialogue.STAGNATION_TURNS": 3}),
+        ),
+    ),
+    Deviation(
         "skip_shown",
         "ranking.SKIP_SHOWN",
         "True (live)",
@@ -282,6 +298,20 @@ DEVIATIONS = (
         "True (shipped on)",
         (("whole session", {"dialogue.SCOPED_EXHAUSTION": False}),),
     ),
+    Deviation(
+        "memory",
+        "memory.ENABLED and its four read gates",
+        "enabled, preferences off (shipped on); zero on every set whose rows "
+        "name no shopper, which is the bit-identical claim taken through the "
+        "sweep. `make memory` is where the component is actually read",
+        (
+            ("off", {"memory.ENABLED": False}),
+            ("-refuse", {"memory.CARRY_REFUSALS": False}),
+            ("-arms", {"memory.CARRY_ARMS": False}),
+            ("-buckets", {"memory.CARRY_BUCKETS": False}),
+            ("+prefer", {"memory.CARRY_POSITIVES": True}),
+        ),
+    ),
 )
 
 # Components that cost money and need a network, and are therefore reachable
@@ -329,7 +359,11 @@ def score(agent, rows: list[dict], catalog_ids: set[str],
     frozen for this phase. The artifact is therefore assembled here, in the
     shape `harness/diff.py` already consumes.
     """
-    recorder = record.RecordingAgent(agent)
+    # Wrapped so a set whose rows name a shopper is scored with those
+    # identities supplied, and so every sweep point starts from an
+    # empty store: `patched` never rebuilds the agent, so without the
+    # proxy's own reset the cell order would decide the result.
+    recorder = record.RecordingAgent(identity.ReturningAgent(agent, rows))
     result = local_evaluator.evaluate(
         recorder, rows, catalog_ids, categories, by_asin)
     analyzed = analysis.analyze(recorder.sessions, rows, result, catalog_ids)

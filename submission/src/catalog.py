@@ -9,12 +9,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from techjam.submission.src import bm25
-from techjam.submission.src import category as category_module
-from techjam.submission.src import dense as dense_module
-from techjam.submission.src import phrases as phrases_module
-from techjam.submission.src import slots as slots_module
-from techjam.submission.src import text
+from submission.src import bm25
+from submission.src import category as category_module
+from submission.src import dense as dense_module
+from submission.src import phrases as phrases_module
+from submission.src import slots as slots_module
+from submission.src import text
 
 FALLBACK_CATEGORY = "clothing item"
 FALLBACK_POOL_SIZE = 100
@@ -80,6 +80,10 @@ class Catalog:
     # path never reads back.
     offers: tuple[tuple[tuple[str, int, float], ...], ...] = ()
     offer_ids: dict[str, int] | None = None
+    # The interned strings themselves, indexed by value id, so a question can
+    # offer the customer values that exist in the pool in front of them rather
+    # than a hardcoded list. Read only by `probe.options`.
+    offer_text: tuple[str, ...] = ()
 
     # The indexed text itself, retained only when Tier 2 asked for it at
     # construction. Every other stage reads an index rather than the words, so
@@ -188,6 +192,7 @@ def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
 
     taxonomy = taxonomy_builder.freeze()
     offers, offer_ids = _offers(leads, taxonomy)
+    offer_text = tuple(offer_ids)
 
     return Catalog(
         asins=tuple(asins),
@@ -213,6 +218,7 @@ def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
         cards=tuple(documents) if cards else None,
         offers=offers,
         offer_ids=offer_ids,
+        offer_text=offer_text,
     )
 
 

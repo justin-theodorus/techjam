@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from techjam.submission.src import category
+from submission.src import category
 
 KEYS = (
     "Shirts T-Shirts",

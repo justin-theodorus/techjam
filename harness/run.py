@@ -14,12 +14,12 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
-from techjam.evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
-from techjam.harness import diff as diff_module
-from techjam.harness.analysis import analyze, health_summary, latency_summary, usage_summary
-from techjam.harness.record import RecordingAgent
-from techjam.harness.report import baseline, render
-from techjam.submission.src import ranking
+from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
+from harness import diff as diff_module
+from harness.analysis import analyze, health_summary, latency_summary, usage_summary
+from harness.record import RecordingAgent
+from harness.report import baseline, render
+from submission.src import ranking
 
 DEFAULT_AGENT = "submission.agent:Agent"
 BASELINE_FIELDS = (

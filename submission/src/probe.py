@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import math
 
-from techjam.submission.src import dialogue
-from techjam.submission.src import slots as slots_module
+from submission.src import dialogue
+from submission.src import policy as policy_module
+from submission.src import slots as slots_module
 
 # The attributes a question can name. `other` is deliberately absent: it is not
 # an attribute, it is a request for anything, and it is scored separately.
@@ -87,6 +88,37 @@ ARM_DECAY = 0.35
 # nothing, and every value between trades the two off smoothly.
 WILDCARD_FALLBACK_RATIO = 0.2
 
+# Whether repeated unhelpful answers may force the next question onto an
+# attribute the session has not touched at all.
+#
+# `ARM_DECAY` already discounts an attribute the customer has spoken about, but
+# it is a discount and a strongly-covered arm can win anyway, so a session can
+# keep asking sharper questions about the same dimension while the customer has
+# stopped answering. This retires every dimension already heard for one turn,
+# which is the difference between a better question and a different one.
+#
+# Measured on the frozen sets before shipping; see findings 3.47.
+STAGNATION_ESCAPE = True
+
+# Whether the last turn of the protocol asks anything at all.
+#
+# An answer arriving on the final turn has no turn left to be spent in, so the
+# question is pure conversational cost. Keyed on the turn rather than on the
+# coverage policy, because "there is no next turn" is a fact about the protocol
+# and stays true under a policy that outranks coverage.
+COVERAGE_SILENCE = True
+
+# How many turns the protocol runs. Ten, per the competition specification and
+# `evaluator.local_evaluator.MAX_TURNS`. Read only by `COVERAGE_SILENCE`, and
+# a wrong value there costs one question rather than a slate.
+FINAL_TURN = 10
+
+# How many alternatives a question may offer, and how long one may be. Two is
+# the floor worth offering: a single option is a yes/no question wearing a list.
+MAX_OPTIONS = 3
+MIN_OPTIONS = 2
+MAX_OPTION_LENGTH = 30
+
 
 def expected_yield(
     state: dialogue.SessionState, taxonomy: slots_module.Taxonomy
@@ -107,7 +139,7 @@ def expected_yield(
 
     scores = {}
     for arm in ARMS:
-        if arm in state.refused:
+        if arm in state.refused or arm in state.carried_arms:
             scores[arm] = 0.0
             continue
         seen = heard.get(arm, 0)
@@ -123,6 +155,7 @@ def choose(
     state: dialogue.SessionState,
     taxonomy: slots_module.Taxonomy,
     catalog=None,
+    policy: str | None = None,
 ) -> str | None:
     """Returns the attribute to ask about, or None when nothing is worth asking.
 
@@ -136,18 +169,38 @@ def choose(
         catalog: Supplies the live pool. Absent, or with `SPECIFIC_ARMS` off,
           the wildcard answer stands, which is what the 0.9554 headline
           measured.
+        policy: This turn's dialogue policy. Only `stagnation` changes what is
+          asked; the rest change only how it is worded.
     """
     if state.exhausted:
         return None
+    if COVERAGE_SILENCE and state.turn >= FINAL_TURN:
+        return None
     if SPECIFIC_ARMS and catalog is not None:
-        return specific(state, catalog)
+        return specific(state, catalog, avoid=_escaping(state, policy))
     scores = expected_yield(state, taxonomy)
     best = max(scores, key=scores.get)
     return best if scores[best] > 0.0 else None
 
 
+def _escaping(
+    state: dialogue.SessionState, policy: str | None
+) -> frozenset[str]:
+    """Returns the attributes a stagnating session must not ask about again.
+
+    Empty under every other policy, so this costs nothing until two answered
+    questions in a row have added nothing.
+    """
+    if not STAGNATION_ESCAPE or policy != policy_module.STAGNATION:
+        return frozenset()
+    return frozenset(slot.attribute for slot in state.slots)
+
+
 def specific(
-    state: dialogue.SessionState, catalog, pool_size: int = POOL_SIZE
+    state: dialogue.SessionState,
+    catalog,
+    pool_size: int = POOL_SIZE,
+    avoid: frozenset[str] = frozenset(),
 ) -> str | None:
     """Returns the arm expected to separate the live pool most.
 
@@ -167,6 +220,8 @@ def specific(
         state: The session so far.
         catalog: Supplies the candidate pool and the per-product lead lines.
         pool_size: How many contenders to score against.
+        avoid: Attributes this turn may not ask about, whatever they score.
+          Non-empty only under the stagnation policy.
     """
     pool = catalog.pool(state.pool_keys)[:pool_size]
     if not pool:
@@ -201,7 +256,13 @@ def specific(
 
     scores = {}
     for arm in ARMS:
-        if arm in state.refused or not coverage.get(arm):
+        # `carried_arms` is what earlier visits established this person will
+        # not answer, and it reads here rather than in `policy` on purpose:
+        # a remembered dimension should stop a question, not open the session
+        # in the `boundary` stance (findings 3.46).
+        if arm in state.refused or arm in state.carried_arms:
+            continue
+        if arm in avoid or not coverage.get(arm):
             continue
         scores[arm] = (
             (coverage[arm] / len(pool))
@@ -216,6 +277,68 @@ def specific(
     if union > 0.0 and coverage[best_arm] / union < WILDCARD_FALLBACK_RATIO:
         return WILDCARD
     return best_arm
+
+
+def options(
+    state: dialogue.SessionState,
+    catalog,
+    arm: str | None,
+    limit: int = MAX_OPTIONS,
+    pool_size: int = POOL_SIZE,
+) -> tuple[str, ...]:
+    """Returns values of `arm` the products still in contention actually claim.
+
+    The alternatives a question offers are the difference between "do you have
+    a material preference?" and "leather, cotton, or nylon?", and a shopper who
+    cannot name a technical attribute can still recognise one. Drawing them
+    from the live pool rather than from a written list is what keeps the second
+    question honest: every option offered is a choice that still narrows
+    something, and an empty return says the attribute has no vocabulary worth
+    offering rather than that the module has run out of ideas.
+
+    Args:
+        state: The session so far, for the pool and for what has been said.
+        catalog: Supplies the pool, the lead lines, and their interned text.
+        arm: The attribute being asked about, or None.
+        limit: How many alternatives to offer at most.
+        pool_size: How many contenders to draw them from.
+    """
+    if not arm or arm == WILDCARD or not catalog.offer_text:
+        return ()
+    pool = catalog.pool(state.pool_keys)[:pool_size]
+    if not pool:
+        return ()
+
+    # Matched on text rather than on the interned line id `specific` uses. The
+    # ids key whole lead lines, so a customer who said "leather" would be
+    # offered "material: leather" back as a fresh choice.
+    said = tuple(value.casefold() for value in state.constraints)
+    weights: dict[int, float] = {}
+    for index in pool:
+        for row_arm, value_id, weight in catalog.offers[index]:
+            if row_arm != arm:
+                continue
+            weights[value_id] = weights.get(value_id, 0.0) + weight
+
+    ranked_ids = sorted(weights, key=lambda key: -weights[key])
+    chosen: list[str] = []
+    seen: set[str] = set()
+    for value_id in ranked_ids:
+        value = slots_module.value_of(catalog.offer_text[value_id]).lower()
+        if not value or len(value) > MAX_OPTION_LENGTH or value in seen:
+            continue
+        if any(value in constraint for constraint in said):
+            continue
+        # The catalog has to have taught this word for this attribute. Without
+        # the check a lead line merely *classified* as size can be offered as
+        # one, and half of them are parcel dimensions (findings 3.38).
+        if catalog.taxonomy.vocabulary(value) != arm:
+            continue
+        seen.add(value)
+        chosen.append(value)
+        if len(chosen) == limit:
+            break
+    return tuple(chosen) if len(chosen) >= MIN_OPTIONS else ()
 
 
 def _spread(weights: dict[int, float]) -> float:

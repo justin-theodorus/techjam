@@ -31,14 +31,15 @@ import statistics
 from pathlib import Path
 from time import perf_counter
 
-from techjam.evaluator import local_evaluator
+from evaluator import local_evaluator
 
-from techjam.harness import analysis
-from techjam.harness import counterfactual
-from techjam.harness import record
-from techjam.harness import run
-from techjam.harness import session_axes
-from techjam.harness import session_sets
+from harness import analysis
+from harness import counterfactual
+from harness import identity
+from harness import record
+from harness import run
+from harness import session_axes
+from harness import session_sets
 
 SAMPLE_PREFIX = "syn"
 
@@ -149,6 +150,13 @@ def generate(recipe: Recipe, products: list[dict],
         random.Random(f"{recipe.name}\0{recipe.seed}\0targets"),
         sum(size for _, size in counts),
     )
+    # Placed before `profile_rng` is drawn from, and drawing nothing itself:
+    # that generator is set-level and sequential, so a single extra draw here
+    # would shift every later profile and silently invalidate the other sets.
+    layout = session_axes.shoppers(
+        recipe.shoppers, targets, facts, candidates, recipe.weights,
+        random.Random(f"{recipe.name}\0{recipe.seed}\0shoppers"))
+    targets = list(layout.targets)
     profile_rng = random.Random(f"{recipe.name}\0{recipe.seed}\0profiles")
 
     rows, index = [], 0
@@ -169,6 +177,12 @@ def generate(recipe: Recipe, products: list[dict],
                 card, behavior = _author(
                     recipe, scenario, sample_id, product, facts)
                 row = {**row, "intent_card": card, "behavior": behavior}
+            if layout.ids[index] is not None:
+                # Row-level, never on `user_profile`: the contract closes that
+                # object with `additionalProperties: false`, and the local
+                # evaluator's tolerance for a stray key is not the contract.
+                row = {**row, "shopper_id": layout.ids[index],
+                       "visit": layout.visits[index]}
             rows.append(row)
             index += 1
     return rows
@@ -206,6 +220,28 @@ def _check_override(row: dict) -> None:
         )
 
 
+def _check_identity(row: dict, sample_id: str) -> None:
+    """Requires both identity keys or neither, and a real visit number.
+
+    They live on the row rather than on `user_profile` because the contract
+    closes that object, and they are checked here rather than trusted because
+    a half-stamped row would read as a first visit forever.
+    """
+    named = [key for key in ("shopper_id", "visit") if key in row]
+    if not named:
+        return
+    if len(named) == 1:
+        raise ValueError(
+            f"{sample_id}: carries {named[0]!r} alone, so the visit it "
+            "belongs to cannot be identified"
+        )
+    if not isinstance(row["shopper_id"], str) or not row["shopper_id"]:
+        raise ValueError(f"{sample_id}: shopper_id must be a non-empty string")
+    visit = row["visit"]
+    if not isinstance(visit, int) or isinstance(visit, bool) or visit < 1:
+        raise ValueError(f"{sample_id}: visit must be an int of at least 1")
+
+
 def validate_row(row: dict, catalog_ids: set[str]) -> None:
     """Raises on anything `evaluate()` would crash on or silently mishandle."""
     sample_id = row.get("sample_id")
@@ -224,6 +260,7 @@ def validate_row(row: dict, catalog_ids: set[str]) -> None:
             f"{sample_id}: user_profile is not the contract's "
             f"{sorted(PROFILE_KEYS)}"
         )
+    _check_identity(row, sample_id)
     authored = [key for key in ("intent_card", "behavior") if key in row]
     if len(authored) == 1:
         raise ValueError(
@@ -297,7 +334,10 @@ def measure(agent, rows: list[dict], catalog_ids: set[str],
     Health matters as much as rank here. A generator that emits a row the agent
     cannot survive would otherwise read as a hard set rather than a broken one.
     """
-    recorder = record.RecordingAgent(agent)
+    # Wrapped so a set whose rows name a shopper is scored with those
+    # identities supplied. Rows that name none call `remember(None)`,
+    # which is the inert path every other set takes.
+    recorder = record.RecordingAgent(identity.ReturningAgent(agent, rows))
     result = local_evaluator.evaluate(
         recorder, rows, catalog_ids, categories, by_asin)
     sessions = analysis.analyze(recorder.sessions, rows, result, catalog_ids)
@@ -428,6 +468,16 @@ def _write(path: str, recipes: list[Recipe], products, facts, public_profiles,
     return 0
 
 
+def _truncates_a_visit(rows: list[dict]) -> bool:
+    """Whether a slice left some shopper without its later visits."""
+    seen: dict[str, int] = {}
+    for row in rows:
+        identity = row.get("shopper_id")
+        if identity is not None:
+            seen[identity] = seen.get(identity, 0) + 1
+    return bool(seen) and len(set(seen.values())) > 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.list:
@@ -465,6 +515,12 @@ def main(argv: list[str] | None = None) -> int:
             validate_row(row, catalog_ids)
         if args.limit is not None:
             rows = rows[: args.limit]
+            if _truncates_a_visit(rows):
+                # A head slice of a visit-major set keeps first visits and
+                # drops the later ones, so the memory never has a session to
+                # be read by and the set reads as though it did nothing.
+                print(f"WARNING {recipe.name}: --limit cut a shopper's "
+                      "visits; the identity axis is not readable here")
         profiles.append((recipe.name, difficulty(rows, by_asin, facts)))
         scores.append((recipe.name,
                        measure(agent, rows, catalog_ids, categories, by_asin)))

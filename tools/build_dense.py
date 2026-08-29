@@ -40,9 +40,9 @@ import numpy
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from techjam.submission.src import catalog as catalog_module
-from techjam.submission.src import dense
-from techjam.submission.src import text
+from submission.src import catalog as catalog_module
+from submission.src import dense
+from submission.src import text
 
 # Latent dimensions. 64 keeps the int8 document block at 3.2 MB and scores a
 # median bucket in 0.4 ms; the singular values are already flat by 64.

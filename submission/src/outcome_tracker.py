@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from techjam.submission.src import persona_classifier
+from submission.src import persona_classifier
 
 
 @dataclass
