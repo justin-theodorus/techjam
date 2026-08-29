@@ -76,12 +76,15 @@ class SweepTableTest(unittest.TestCase):
     def test_every_swept_constant_exists_and_is_at_its_shipped_value(
         self,
     ) -> None:
-        """The gate reads twelve components against their shipped setting.
+        """The gate reads every component against its shipped setting.
 
-        Five ship switched off and are ablated upward; `NEGATION_WEIGHT` and
-        `SKIP_SHOWN` ship live and are ablated back down, because what they
-        replace is an inverted default rather than a neutral one (findings
-        3.31, 3.32). `submission/src/tests` pins each constant individually;
+        Three of them read the same slate-spreading weight under a route switch
+        and two vetoes, none of which can switch it on.
+
+        Most ship switched off and are ablated upward; `NEGATION_WEIGHT`,
+        `SKIP_SHOWN` and the gated `PROFILE_WEIGHT` ship live and are ablated
+        back down (findings 3.31, 3.32, 3.43). `submission/src/tests` pins each
+        constant individually;
         this asserts the sweep table names the same ones and nothing that has
         been renamed away.
         """
@@ -90,8 +93,14 @@ class SweepTableTest(unittest.TestCase):
             "routing.DISCOVERY_ALPHA": ranking.ALPHA,
             "routing.RECOVERY_RESTART": 0,
             "ranking.DIVERSITY": 0.0,
+            "routing.DISCOVERY_DIVERSITY": None,
+            "ranking.DIVERSITY_MAX_CONSTRAINTS": -1,
+            "ranking.FLATNESS_GATE": 0.0,
+            "ranking.EXPLORE_DIVERSITY": 0.95,
+            "ranking.EXPLORE_SORT": True,
             "ranking.CONVERGE_AT": 0,
-            "ranking.PROFILE_WEIGHT": 0.0,
+            "ranking.PROFILE_WEIGHT": 0.02,
+            "ranking.PROFILE_MAX_CONSTRAINTS": 0,
             "ranking.NEGATION_WEIGHT": ranking.NEGATION_WEIGHT,
             "ranking.DENSE_WEIGHT": 0.0,
             "ranking.DENSE_NEGATION_WEIGHT": 0.0,

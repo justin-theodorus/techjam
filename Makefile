@@ -35,7 +35,7 @@ sessions:
 	$(PYTHON) -m harness.sessions
 
 # Every component with a live switch, re-swept against sets that still have
-# headroom for them to move. Ten of them since Phase 6U.
+# headroom for them to move. Sixteen of them since Phase 6V.
 deviations:
 	$(PYTHON) -m harness.deviations
 

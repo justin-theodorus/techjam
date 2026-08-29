@@ -123,6 +123,59 @@ DEVIATIONS = (
         ),
     ),
     Deviation(
+        "explore_band",
+        "ranking.EXPLORE_DIVERSITY / ranking.EXPLORE_SORT",
+        "0.95 sorted (live); 0.0 restores compose's fixed ranks 11-19",
+        (
+            ("off", {"ranking.EXPLORE_DIVERSITY": 0.0}),
+            ("unsorted", {"ranking.EXPLORE_SORT": False}),
+            ("w.5", {"ranking.EXPLORE_DIVERSITY": 0.5}),
+            ("w.9", {"ranking.EXPLORE_DIVERSITY": 0.9}),
+            ("w.99", {"ranking.EXPLORE_DIVERSITY": 0.99}),
+        ),
+    ),
+    Deviation(
+        "route_diversity",
+        "routing.DISCOVERY_DIVERSITY",
+        "None (defers to ranking.DIVERSITY, which is 0.0)",
+        tuple(
+            (f"disc {weight:g}", {"routing.DISCOVERY_DIVERSITY": weight})
+            for weight in (0.3, 0.5, 0.7, 0.9)
+        ),
+    ),
+    Deviation(
+        "diversity_gate",
+        "ranking.DIVERSITY_MAX_CONSTRAINTS, over a live ranking.DIVERSITY",
+        "-1 (never vetoes, so an enabled weight spreads every turn)",
+        (
+            ("w.3 n0", {"ranking.DIVERSITY": 0.3,
+                        "ranking.DIVERSITY_MAX_CONSTRAINTS": 0}),
+            ("w.5 n0", {"ranking.DIVERSITY": 0.5,
+                        "ranking.DIVERSITY_MAX_CONSTRAINTS": 0}),
+            ("w.7 n0", {"ranking.DIVERSITY": 0.7,
+                        "ranking.DIVERSITY_MAX_CONSTRAINTS": 0}),
+            ("w.5 n1", {"ranking.DIVERSITY": 0.5,
+                        "ranking.DIVERSITY_MAX_CONSTRAINTS": 1}),
+            ("disc.5 n0", {"routing.DISCOVERY_DIVERSITY": 0.5,
+                           "ranking.DIVERSITY_MAX_CONSTRAINTS": 0}),
+        ),
+    ),
+    Deviation(
+        "flatness_gate",
+        "ranking.FLATNESS_GATE, over a live ranking.DIVERSITY",
+        "0.0 (never vetoes)",
+        (
+            ("w.5 f.50", {"ranking.DIVERSITY": 0.5,
+                          "ranking.FLATNESS_GATE": 0.50}),
+            ("w.5 f.65", {"ranking.DIVERSITY": 0.5,
+                          "ranking.FLATNESS_GATE": 0.65}),
+            ("w.5 f.80", {"ranking.DIVERSITY": 0.5,
+                          "ranking.FLATNESS_GATE": 0.80}),
+            ("w.9 f.65", {"ranking.DIVERSITY": 0.9,
+                          "ranking.FLATNESS_GATE": 0.65}),
+        ),
+    ),
+    Deviation(
         "converge_at",
         "ranking.CONVERGE_AT",
         "0 (never)",
@@ -193,11 +246,16 @@ DEVIATIONS = (
     ),
     Deviation(
         "profile_weight",
-        "ranking.PROFILE_WEIGHT",
-        "0.0",
-        tuple(
-            (f"{weight:g}", {"ranking.PROFILE_WEIGHT": weight})
-            for weight in (0.02, 0.05, 0.1, 0.2, 0.4)
+        "ranking.PROFILE_WEIGHT / ranking.PROFILE_MAX_CONSTRAINTS",
+        "0.02 gated to no-attribute turns (live)",
+        (
+            ("off", {"ranking.PROFILE_WEIGHT": 0.0}),
+            ("ungated", {"ranking.PROFILE_MAX_CONSTRAINTS": -1}),
+            ("0.05", {"ranking.PROFILE_WEIGHT": 0.05}),
+            ("0.1", {"ranking.PROFILE_WEIGHT": 0.1}),
+            ("0.2", {"ranking.PROFILE_WEIGHT": 0.2}),
+            ("0.4 open", {"ranking.PROFILE_WEIGHT": 0.4,
+                          "ranking.PROFILE_MAX_CONSTRAINTS": -1}),
         ),
     ),
     # The two below ship *on*, so their sweeps read backwards from every other
@@ -227,7 +285,7 @@ DEVIATIONS = (
 )
 
 # Components that cost money and need a network, and are therefore reachable
-# only by naming them. A default sweep is 41 points over 23 sets; putting a
+# only by naming them. A default sweep is 61 points over 23 sets; putting a
 # per-turn model call in that grid would be roughly 400,000 requests, so the
 # exclusion is a correctness property of `make deviations`, not a preference.
 OPT_IN = ("llm_rerank",)
