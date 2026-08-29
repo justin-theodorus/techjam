@@ -9,7 +9,7 @@ The interactive playground lets you chat with the shopping agent in real-time.
 The full 50,000-product catalog is in a GitHub Release. Download and decompress it:
 
 ```bash
-cd /Users/catherinekang/Documents/tiktoktechjam2026/techjam
+cd /Users/angelicagonathan/Hackathon/techjam
 
 # Option A: Download from GitHub Release
 # (Visit the Release page and download catalog.jsonl.gz)
@@ -24,7 +24,7 @@ If you don't have the compressed file, you can fetch it from the Release page in
 ## Running the Playground
 
 ```bash
-cd /Users/catherinekang/Documents/tiktoktechjam2026/techjam
+cd /Users/angelicagonathan/Hackathon/techjam
 python playground.py
 ```
 
@@ -87,6 +87,7 @@ Recommendations:
 
 **"ModuleNotFoundError"**
 → Make sure you're in the techjam directory and PYTHONPATH is set:
+
 ```bash
 cd techjam
 PYTHONPATH=. python playground.py

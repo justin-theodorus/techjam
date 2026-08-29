@@ -12,11 +12,15 @@ import json
 import sys
 from pathlib import Path
 
-# Import from techjam.submission so it works from either directory
-try:
-    from techjam.submission.agent import Agent
-except ImportError:
-    from submission.agent import Agent
+# The submission imports modules through the `techjam` package name. When this
+# script is launched from inside the repository, Python only adds the repository
+# itself to sys.path, not its parent, so `import techjam` would otherwise fail.
+REPO_ROOT = Path(__file__).resolve().parent
+REPO_PARENT = REPO_ROOT.parent
+if str(REPO_PARENT) not in sys.path:
+    sys.path.insert(0, str(REPO_PARENT))
+
+from techjam.submission.agent import Agent
 
 
 def load_sample_profile() -> dict:
@@ -72,13 +76,18 @@ def run_playground() -> None:
     print("=" * 70)
 
     # Initialize
-    catalog_path = Path("techjam/data/catalog.jsonl")
-    if not catalog_path.exists():
-        print(f"⚠️  Full catalog not found at {catalog_path}")
-        print("Download and decompress it:")
-        print("  gzip -dkc techjam/data/catalog.jsonl.gz > techjam/data/catalog.jsonl")
-        print("\nContinuing with empty product index...")
-        products = {}
+    # Resolve relative to this script rather than the caller's working
+    # directory, so both `python playground.py` and launching it elsewhere use
+    # the same catalog.
+    repo_root = REPO_ROOT
+    catalog_path = repo_root / "data" / "catalog.jsonl"
+    if not catalog_path.exists() or catalog_path.stat().st_size == 0:
+        state = "empty" if catalog_path.exists() else "not found"
+        print(f"⚠️  Full catalog is {state}: {catalog_path}")
+        print("Download catalog.jsonl.gz from the repository's GitHub Release, then run:")
+        print(f"  gzip -t {repo_root / 'catalog.jsonl.gz'}")
+        print(f"  gzip -dkc {repo_root / 'catalog.jsonl.gz'} > {catalog_path}")
+        raise SystemExit("The playground requires the non-empty 50,000-product catalog.")
 
     print("\n📦 Loading agent and catalog...")
     agent = Agent(catalog_path=str(catalog_path))
