@@ -38,6 +38,57 @@ class RouteChoiceTest(unittest.TestCase):
         self.assertEqual(routing.choose(state).name, routing.RECOVERY)
 
 
+class PolicyScoringTest(unittest.TestCase):
+    def test_policy_scores_explain_the_chosen_route(self) -> None:
+        state = dialogue.SessionState(constraints=("cotton", "color: black"))
+        route = routing.choose(state)
+        scores = dict(route.policy_scores)
+
+        self.assertEqual(route.name, routing.PRECISION)
+        self.assertGreater(scores[routing.PRECISION],
+                           scores[routing.DISCOVERY])
+        self.assertGreater(route.policy_confidence, 0.0)
+        self.assertGreater(route.policy_margin, 0.0)
+
+    def test_policy_can_change_as_session_state_changes(self) -> None:
+        states = (
+            dialogue.SessionState(),
+            dialogue.SessionState(constraints=("cotton", "color: black")),
+            dialogue.SessionState(refused=(slots.MATERIAL,)),
+            dialogue.SessionState(pivoted=True, pivot_turn=4),
+        )
+        names = [routing.choose(state).name for state in states]
+
+        self.assertEqual(
+            names,
+            [
+                routing.DISCOVERY,
+                routing.PRECISION,
+                routing.BOUNDARY,
+                routing.RECOVERY,
+            ],
+        )
+
+    def test_a_long_vague_session_can_route_to_stagnation(self) -> None:
+        shown = frozenset(f"ASIN_{index}" for index in range(30))
+        state = dialogue.SessionState(turn=6, shown=shown)
+
+        route = routing.choose(
+            state, candidate_count=500, previous_contenders=10
+        )
+
+        self.assertEqual(route.name, routing.STAGNATION)
+
+    def test_an_exhausted_session_routes_to_coverage(self) -> None:
+        state = dialogue.SessionState(
+            turn=3,
+            exhausted=True,
+            constraints=("cotton", "color: black"),
+        )
+
+        self.assertEqual(routing.choose(state).name, routing.COVERAGE)
+
+
 class NeutralityTest(unittest.TestCase):
     """Every route ships at the shared constants.
 

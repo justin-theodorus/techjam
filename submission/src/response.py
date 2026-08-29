@@ -16,6 +16,8 @@ customer can catch the agent misunderstanding them.
 from __future__ import annotations
 
 from techjam.submission.src import dialogue
+from techjam.submission.src import intent_detector
+from techjam.submission.src import persona_classifier
 
 # Reading a long constraint back verbatim is worse than not reading it back.
 MAX_QUOTED = 42
@@ -150,3 +152,110 @@ def _short(value: str) -> str:
         return cleaned.lower()
     cut = cleaned[:MAX_QUOTED].rsplit(" ", 1)[0]
     return f"{cut.lower()}..." if cut else ""
+
+
+# Persona-based response composition (new layer)
+def compose_with_persona(
+    state: dialogue.SessionState,
+    parsed: dialogue.ParsedTurn,
+    contenders: int,
+    head: int,
+    served: int,
+    asked: str | None,
+    user_message: str,
+    conversation_history: list[tuple[str, str]] | None = None,
+    candidate_count: int = 0,
+    user_profile: dict | None = None,
+    persona_match: persona_classifier.PersonaMatch | None = None,
+) -> str:
+    """Compose a persona-framed response grounded in the selected probe.
+
+    Args:
+        state: Session state after this turn
+        parsed: Parsed constraints from this turn
+        contenders: Number of products near the top score
+        head: Number of committed recommendations
+        served: Number of recommendations shown
+        user_message: The user's current message
+        conversation_history: Previous turns
+        asked: Structured attribute selected by the probe.
+    Returns:
+        Natural language response
+    """
+    # Step 1: Acknowledge what we understood
+    acknowledgment = _acknowledge(state, parsed)
+
+    # Step 2: Describe the slate
+    slate_desc = _slate(contenders, head, served)
+
+    # Step 3: Generate persona-driven question
+    try:
+        if persona_match is None:
+            persona_match = select_persona(
+                state, user_message, conversation_history,
+                candidate_count, user_profile,
+            )
+        question = _persona_question(persona_match.persona_type, asked, state)
+
+    except Exception:
+        # If persona pipeline fails, fallback to hardcoded
+        question = _question(state, asked)
+
+    # Combine all parts
+    parts = [acknowledgment, slate_desc, question]
+    reply = " ".join(part for part in parts if part)
+    return reply or FALLBACK
+
+
+def select_persona(
+    state: dialogue.SessionState,
+    user_message: str,
+    conversation_history: list[tuple[str, str]] | None = None,
+    candidate_count: int = 0,
+    user_profile: dict | None = None,
+) -> persona_classifier.PersonaMatch:
+    """Returns the grounded persona decision for this turn."""
+    intent = intent_detector.IntentDetector().detect(
+        user_message, state, conversation_history
+    )
+    return persona_classifier.PersonaClassifier().classify(
+        intent, state, candidate_count, user_profile
+    )
+
+
+def _persona_question(
+    persona_type: persona_classifier.PersonaType,
+    asked: str | None,
+    state: dialogue.SessionState,
+) -> str:
+    """Frames the probe without ever changing its structured attribute."""
+    if asked is None:
+        return _question(state, None)
+
+    labels = {
+        "category": "product category",
+        "use_case": "main use",
+        "feature": "must-have feature",
+        "budget": "budget",
+        "material": "material",
+        "color": "color",
+        "size": "size or fit",
+        "style": "style",
+        "brand": "brand",
+        "other": "other important detail",
+    }
+    label = labels.get(asked, asked.replace("_", " "))
+
+    if persona_type == persona_classifier.PersonaType.INTENT_OVERRIDE_PIVOT:
+        return f"For the new direction, what {label} should I prioritize?"
+    if persona_type == persona_classifier.PersonaType.BOUNDARY_REJECTION:
+        return f"No problem; we can leave that open. What about your {label}?"
+    if persona_type == persona_classifier.PersonaType.CLARIFY_CONTRADICTION:
+        return f"Those preferences may compete. Which {label} matters most?"
+    if persona_type == persona_classifier.PersonaType.MID_BROWSER_VAGUE:
+        return f"To help narrow the options, what is your preferred {label}?"
+    if persona_type == persona_classifier.PersonaType.LATE_CRITICAL_EVALUATOR:
+        return f"Before I finalize these, what {label} is essential?"
+    if persona_type == persona_classifier.PersonaType.MID_BROWSER_REFINED:
+        return f"To refine these further, what {label} should I match?"
+    return f"What is your preferred {label}?"
