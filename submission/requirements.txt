@@ -1,6 +1,20 @@
 # No third-party dependencies.
 #
-# The agent is Python standard library only. It bundles no model weights, no
-# embeddings and no data files, and it makes no network calls at any point.
-# Nothing to install; `pip install -r requirements.txt` is a no-op and is listed
-# only so the reproduction steps are uniform.
+# The agent is Python standard library only. It makes no network calls at any
+# point, and `pip install -r requirements.txt` is a no-op, listed only so the
+# reproduction steps are uniform.
+#
+# It bundles one asset, `assets/dense.bin`: a 4.92 MB quantised latent space over
+# the catalog, read with `array` and `struct`. It ships at weight 0, so no
+# reported number depends on it and deleting it changes nothing. Regenerating it
+# needs numpy and `tools/build_dense.py` from the public repository; neither is
+# imported at scoring time and neither belongs in this file.
+#
+# One optional extra, needed only to run Tier 2 (`USE_LLM=1`, `make llm`):
+#
+#     anthropic
+#
+# It is imported lazily, inside `src/llm.py`, and the scored offline
+# configuration never reaches that line. Deliberately not listed as a
+# requirement above: installing it changes nothing, and not installing it
+# leaves the agent running exactly as every reported number was measured.
