@@ -12,12 +12,37 @@ from submission.src import text
 ALPHA = 0.6
 SLATE_SIZE = 10
 
-# How much the anonymised profile is allowed to move a ranking. The profile is
-# an aggregate of preference tags and rating habits with no product in it, and
-# nine distinct tag sets cover all 200 public sessions, so the honest prior is
-# that it carries almost nothing. Wired, swept and shipped at the weight that
-# measurement supports rather than dropped on the floor (findings 3.28).
-PROFILE_WEIGHT = 0.0
+# How much the anonymised profile is allowed to move a ranking, and how much the
+# customer must still have left unsaid for it to be consulted at all.
+#
+# The tags carry no person-specific information: ranking a target's own bucket
+# by a *stranger's* tags scores the same as by its own (61.5% against 62.0%),
+# and using all nine vocabulary words with no personalisation at all scores
+# better than either (66.0%). What they actually measure is how much text a
+# listing carries, which is a corrupted proxy for the popularity prior already
+# in the blend (findings 3.28).
+#
+# So the weight is set by what it can displace rather than by what it knows.
+# Inside a bucket the popularity-only scores are packed at a median adjacent gap
+# of 0.0058, so an additive term of size `w` jumps a product about `w/0.0058`
+# places: at 0.05 it re-sorts 92% of slates, at 0.2 it moves the top pick in 35%
+# of sessions. At 0.02 the top pick survives 97% of the time and under one slot
+# in ten changes.
+#
+# **Ships live at that weight, and deliberately not as a score claim.** Gated,
+# it is +0.0002 in the mean over the 15 readable sets with 6 better and 2 worse,
+# which is two hundred times below the 0.04 noise floor: it is measurably not
+# harmful rather than measurably good. It ships because the brief asks the agent
+# to use the anonymised profile and this is the configuration that does so
+# without spending anything, not because it earns score (findings 3.43).
+PROFILE_WEIGHT = 0.02
+
+# Ungated, the same weight is monotonically negative and reaches -0.1125 on
+# `silent_customer` (findings 3.30), because it perturbs turns that carry query
+# evidence and there it displaces the customer's own words. With nothing
+# disclosed there is no lexical half to displace and the term competes only with
+# the prior. `-1` never gates, which is the configuration 3.30 rejected.
+PROFILE_MAX_CONSTRAINTS = 0
 
 # How much the dense track is allowed to move an in-bucket ranking.
 #
@@ -74,6 +99,69 @@ HEAD_SIZE = 1
 # bounds the cost: selection is quadratic in it, everything else here is linear.
 WINDOW = 40
 DIVERSITY = 0.0
+
+# How much the customer must still have left unsaid for diversification to be
+# worth a slot. `-1` never gates, which is the ungated sweep 3.30 ran; `0`
+# diversifies only while the customer has named nothing, which is the browsing
+# opening; higher values keep it running further into a session.
+#
+# The gate exists because 3.30's verdict was taken on one configuration and read
+# as a verdict on the mechanism. Diversity won +0.0756 on `thin_cards` and lost
+# 0.0542 on `negated_constraints`, and the losing sessions are the ones that had
+# text to rank on, which a gate can exclude and the unconditional sweep could
+# not. Measured at -1 and shipped there: gating shrinks the loss on every set it
+# was expected to rescue without turning one positive (findings 3.43).
+DIVERSITY_MAX_CONSTRAINTS = -1
+
+# How undifferentiated the ranking must be before spreading the slate is worth
+# a slot. `0.0` never vetoes, which is the shipped setting.
+#
+# The dialogue gate above asks what the customer has said; this asks what the
+# ranking made of it, which is the same question from the other end and the one
+# `thin_cards` actually answered. A session can hold four constraints the
+# catalog has no words for, and a session can hold none while the popularity
+# prior separates the bucket cleanly.
+FLATNESS_GATE = 0.0
+
+# How much the *exploration* slots below the committed head are chosen by
+# marginal relevance rather than by a fixed rank offset. `0.0` restores
+# `compose`'s fixed arithmetic, which is what every number before 3.45 was
+# taken against.
+#
+# This is not `DIVERSITY` with a different number. That one selects over
+# `ordered[:WINDOW]`, which spans the ranks deferred commitment deliberately
+# withholds: a target sitting at rank 5 converts *later at rank 1* for a
+# reciprocal rank of 1.0, and spending a slot on it now converts it at 0.2
+# instead. Diversifying the whole head therefore cannibalises the withheld band,
+# and measurement says that is the entire cost -- the loss is 100% MRR while
+# MTTC *improves* (findings 3.45).
+#
+# Restricted to `ordered[SLATE_SIZE:WINDOW]` it cannot touch the withheld band
+# at all. What it replaces is only the fixed reach to ranks 11-19, with a reach
+# that goes deeper when the scores are flat and stays shallow when they are
+# peaked. That is 3.30's own mechanism applied to the band where it costs
+# nothing.
+#
+# **Ships live at 0.95, and it is the one change in this project that trades
+# reported score for robustness.** It costs 0.0017 on the public 200 and gains
+# on every pessimistic bound: size-biased +0.0083, sqrt +0.0059, uniform
+# +0.0025, and the worst paraphrase column +0.0054. Across the 15 readable
+# frozen sets it is +0.0031 in the mean, 10 better against 4 worse. The public
+# set is 88% rank-1 and its rows are not evidence for a ranking change; the risk
+# columns are what a differently-drawn private set would look like. This is the
+# same trade `ALPHA` already makes by shipping at 0.6 rather than at the public
+# optimum of 1.3, which collapses to 0.595 under uniform targets (findings
+# 3.20, 3.45).
+EXPLORE_DIVERSITY = 0.95
+
+# Whether the exploration slots are served in score order or in the order
+# marginal relevance picked them. Membership decides hit@10 and MTTC and only
+# position decides MRR, so this is a pure permutation and cannot cost coverage.
+#
+# Ships on. Marginal relevance picks in order of what each slot *adds*, which is
+# not the order of what each is *worth*: sorting the picks back into score order
+# is worth +0.0005 in the mean and wins at every weight measured.
+EXPLORE_SORT = True
 
 # How close to the leader a product must score to still count as in contention,
 # and how few contenders it takes before the slate stops holding back. This is
@@ -139,6 +227,7 @@ def slate(
     profile_ids: frozenset[int] = frozenset(),
     dense_weight: float | None = None,
     reach: int = 0,
+    diversity: float | None = None,
     reranker: Reranker | None = None,
 ) -> Served:
     """Filters to the resolved buckets, ranks inside them, then pads to `size`.
@@ -152,6 +241,8 @@ def slate(
     # now", which is what makes this switch readable by `make deviations`.
     if dense_weight is None:
         dense_weight = DENSE_WEIGHT
+    if diversity is None:
+        diversity = DIVERSITY
     query_ids = catalog.index.query_ids(text.unique_tokens(state.query_text))
     negative_ids = catalog.index.query_ids(
         text.unique_tokens(state.excluded_text)
@@ -164,16 +255,16 @@ def slate(
     )
     pool = widen(catalog, state, dense_query, reach)
     ordered, scores = ranked(
-        catalog, pool, query_ids, alpha, profile_ids,
+        catalog, pool, query_ids, alpha, personalised(state, profile_ids),
         negative_ids, dense_query, dense_negative, dense_weight,
     )
     contenders = contention(scores)
     ordered, scores = unseen(catalog, ordered, scores, state.shown, size)
     head = head_size(state, size, defer_turns, contenders)
-    if DIVERSITY > 0.0:
-        chosen = diversify(catalog, ordered, scores, head, size, DIVERSITY)
+    if diversity > 0.0 and worth_diversifying(state, scores, size):
+        chosen = diversify(catalog, ordered, scores, head, size, diversity)
     else:
-        chosen = compose(ordered, head, size)
+        chosen = explore(catalog, ordered, scores, head, size)
     padded = pad(catalog, chosen, state.category, size)
     final = reranked(catalog, padded, state, reranker)
 
@@ -448,6 +539,95 @@ def compose(ordered: list[int], head: int, size: int) -> list[int]:
     return list(ordered[:head]) + list(ordered[size:size + size - head])
 
 
+def personalised(
+    state: dialogue.SessionState, profile_ids: frozenset[int]
+) -> frozenset[int]:
+    """Returns the profile tags this turn may rank with, empty when gated out.
+
+    Withholding the ids rather than zeroing the weight keeps the gate in one
+    place: `ranked` already no-ops on an empty set, so nothing downstream needs
+    to know the profile can be switched off per turn.
+    """
+    if PROFILE_MAX_CONSTRAINTS < 0:
+        return profile_ids
+    if len(state.constraints) > PROFILE_MAX_CONSTRAINTS:
+        return frozenset()
+    return profile_ids
+
+
+def flatness(scores: list[float], depth: int = SLATE_SIZE) -> float:
+    """Returns how little the ranking separates the depth it is about to serve.
+
+    The deepest score the slate reaches, over the best one. 1.0 is a ranking
+    that cannot tell its own top `depth` apart; a small value is one that has
+    already decided.
+
+    Deliberately not a second reading of `contention`, and that distinction is
+    why this exists. `contention` counts how many products sit within a fixed
+    margin of the leader, and on the blended score that is p50 1 and max 4 on
+    every set measured, because the popularity prior separates the head sharply
+    even where the text does not. Counting lexical-only flatness instead does
+    vary, but its median is 1 whether the target sits at rank 5 or rank 90, so
+    it carries no depth information (findings 3.34). A ratio across the served
+    depth is neither of those, and it does spread.
+
+    A non-positive leader has no scale to be a ratio of. `ranked` subtracts for
+    refused attributes and can push a whole pool below zero, where -2.0 / -1.0
+    would read as twice as flat as flat. Those turns report 0.0, maximally
+    separated, which is the reading that leaves the shipped slate alone.
+    """
+    if not scores or scores[0] <= 0.0:
+        return 0.0
+    return max(0.0, scores[min(depth, len(scores)) - 1] / scores[0])
+
+
+def worth_diversifying(
+    state: dialogue.SessionState, scores: list[float], size: int
+) -> bool:
+    """Whether this turn's slate is undifferentiated enough to spread.
+
+    Two independent vetoes, both disabled, and neither can switch spreading on:
+    a zero weight stays zero whatever they say. Both are read from the module
+    here rather than taken as defaulted arguments, for the same reason
+    `dense_weight` is resolved inside `slate` (findings 3.27).
+    """
+    if 0 <= DIVERSITY_MAX_CONSTRAINTS < len(state.constraints):
+        return False
+    if FLATNESS_GATE <= 0.0:
+        return True
+    return flatness(scores, size) >= FLATNESS_GATE
+
+
+def explore(
+    catalog: catalog_module.Catalog,
+    ordered: list[int],
+    scores: list[float],
+    head: int,
+    size: int,
+) -> list[int]:
+    """Commits the head, then fills the rest from past the slate.
+
+    The same shape as `compose` and the same withheld band; the only question
+    is whether the exploration slots are the fixed ranks `size`..`2*size` or a
+    marginal-relevance selection over `size`..`WINDOW`. Falls back to `compose`
+    whenever the band is too shallow to choose from, so the arithmetic path
+    stays the one every earlier number was taken against.
+    """
+    if EXPLORE_DIVERSITY <= 0.0 or head >= size:
+        return compose(ordered, head, size)
+    band = ordered[size:WINDOW]
+    slots = size - head
+    if len(band) < slots:
+        return compose(ordered, head, size)
+    picked = diversify(
+        catalog, band, scores[size:WINDOW], 0, slots, EXPLORE_DIVERSITY
+    )
+    if EXPLORE_SORT:
+        rank = {index: position for position, index in enumerate(ordered)}
+        picked = sorted(picked, key=lambda index: rank[index])
+    return list(ordered[:head]) + list(picked)
+
+
 def diversify(
     catalog: catalog_module.Catalog,
     ordered: list[int],
@@ -477,7 +657,15 @@ def diversify(
     tokens = [catalog.index.tokens_of(index) for index in window]
 
     chosen = list(range(min(head, len(window))))
-    overlap = [_similarity(tokens[i], tokens[0]) for i in range(len(window))]
+    # Overlap is measured against what has actually been committed. With an
+    # empty head there is nothing to repeat yet, so seeding against `window[0]`
+    # would penalise the best candidate for resembling itself and hand the
+    # first slot to the second-best.
+    if chosen:
+        overlap = [_similarity(tokens[i], tokens[0])
+                   for i in range(len(window))]
+    else:
+        overlap = [0.0] * len(window)
     remaining = set(range(len(window))) - set(chosen)
 
     while len(chosen) < size and remaining:

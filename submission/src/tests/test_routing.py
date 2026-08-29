@@ -111,5 +111,66 @@ class RecoveryRestartTest(unittest.TestCase):
             routing.RECOVERY_RESTART = original
 
 
+class RouteDiversityTest(unittest.TestCase):
+    """Spreading the slate per route: built, measured, shipped neutral.
+
+    The brief's dual-track claim taken literally, and the only route-conditional
+    setting whose argument does not reduce to `alpha` in a disguise, because it
+    changes how the slate is selected rather than how the pool is scored. It
+    costs 0.035 to 0.042 on the public 200 at every weight measured, which is
+    barely less than the unconditional weight findings 3.27 rejected
+    (findings 3.43).
+    """
+
+    def test_no_route_deviates_on_diversification(self) -> None:
+        """`None` defers to `ranking.DIVERSITY`, which is zero."""
+        states = (
+            dialogue.SessionState(),
+            dialogue.SessionState(constraints=("a",)),
+            dialogue.SessionState(constraints=("a", "b")),
+            dialogue.SessionState(refused=("material",)),
+            dialogue.SessionState(pivoted=True, pivot_turn=3),
+        )
+        for state in states:
+            with self.subTest(state=state):
+                self.assertIsNone(routing.choose(state).diversity)
+        self.assertIsNone(routing.DISCOVERY_DIVERSITY)
+        self.assertEqual(ranking.DIVERSITY, 0.0)
+
+    def test_the_switch_reaches_only_the_discovery_route(self) -> None:
+        original = routing.DISCOVERY_DIVERSITY
+        try:
+            routing.DISCOVERY_DIVERSITY = 0.5
+            reached = (
+                dialogue.SessionState(),
+                dialogue.SessionState(constraints=("cotton",)),
+            )
+            for state in reached:
+                with self.subTest(state=state):
+                    self.assertEqual(routing.choose(state).diversity, 0.5)
+            spared = (
+                dialogue.SessionState(constraints=("a", "b")),
+                dialogue.SessionState(refused=("material",)),
+                dialogue.SessionState(pivoted=True, pivot_turn=2),
+            )
+            for state in spared:
+                with self.subTest(state=state):
+                    self.assertIsNone(routing.choose(state).diversity)
+        finally:
+            routing.DISCOVERY_DIVERSITY = original
+
+    def test_the_route_gate_is_not_a_scenario_split(self) -> None:
+        """A buying session opens inside this gate, so it acts from turn 2.
+
+        Buying discloses one constraint before turn 1 and the precision
+        threshold is two, so every scenario takes discovery on the opening
+        turn. Reading this switch as "browsing gets variety" is wrong.
+        """
+        state = dialogue.SessionState(constraints=("cotton",))
+
+        self.assertGreater(routing.MIN_PRECISION_CONSTRAINTS, 1)
+        self.assertEqual(routing.choose(state).name, routing.DISCOVERY)
+
+
 if __name__ == "__main__":
     unittest.main()

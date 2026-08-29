@@ -67,6 +67,22 @@ PRECISION_DENSE: float | None = None
 DISCOVERY_DENSE: float | None = None
 DISCOVERY_REACH = 0
 
+# How much the discovery route varies its slate instead of ranking it. `None`
+# defers to `ranking.DIVERSITY`, which is zero, so no route specialises.
+#
+# This is the brief's own dual-track claim taken literally: hold the precision
+# route on deferred commitment and let the exploring one spread out. It is the
+# only route-conditional setting whose argument does not reduce to `alpha` in a
+# disguise, because it changes how the slate is *selected* rather than how the
+# pool is scored.
+#
+# Measured negative and shipped neutral. Every session takes this route on turn
+# 1, buying included, because buying opens with one constraint and the precision
+# threshold is two -- so gating on the route is a turn-1 gate rather than a
+# browsing gate, and `ranking.DIVERSITY_MAX_CONSTRAINTS` is the sharper
+# instrument for the same idea (findings 3.43).
+DISCOVERY_DIVERSITY: float | None = None
+
 
 @dataclass(frozen=True)
 class Route:
@@ -77,6 +93,7 @@ class Route:
     defer_turns: int
     dense_weight: float | None = None
     reach: int = 0
+    diversity: float | None = None
 
 
 def choose(state: dialogue.SessionState) -> Route:
@@ -96,7 +113,7 @@ def choose(state: dialogue.SessionState) -> Route:
         )
     return Route(
         DISCOVERY, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS,
-        DISCOVERY_DENSE, DISCOVERY_REACH,
+        DISCOVERY_DENSE, DISCOVERY_REACH, diversity=DISCOVERY_DIVERSITY,
     )
 
 

@@ -168,9 +168,14 @@ class Agent:
 
         route = routing.choose(state)
         served = ranking.slate(
-            self.catalog, state, size, route.alpha, route.defer_turns,
-            self._profile_ids, route.dense_weight, route.reach,
-            self._reranker,
+            self.catalog, state, size,
+            alpha=route.alpha,
+            defer_turns=route.defer_turns,
+            profile_ids=self._profile_ids,
+            dense_weight=route.dense_weight,
+            reach=route.reach,
+            reranker=self._reranker,
+            diversity=route.diversity,
         )
         asins = tuple(self.catalog.slate_of(served.indices))
         self._state = state.with_slate(asins)
@@ -219,6 +224,17 @@ class Agent:
             return ranking.DENSE_WEIGHT
         return route.dense_weight
 
+    def _diversity_of(self, route: routing.Route) -> float:
+        """Returns the diversity weight this turn actually ran at.
+
+        Resolved the same way `_dense_of` is, and for the same reason: a route
+        carrying `None` is deferring, not switched off, and a trace that read
+        the two as one would report the wrong thing on the turn it mattered.
+        """
+        if route.diversity is None:
+            return ranking.DIVERSITY
+        return route.diversity
+
     def _record(
         self,
         state: dialogue.SessionState,
@@ -254,5 +270,6 @@ class Agent:
             "alpha": route.alpha,
             "dense": self._dense_of(route),
             "reach": route.reach,
+            "variety": self._diversity_of(route),
             "top1": asins[0] if asins else "-",
         }
