@@ -3,8 +3,10 @@
 A multi-turn shopping agent that recovers a hidden target product from a
 simulated customer conversation over a frozen 50,000-product Amazon catalog.
 
-**Requires network: No. Bundled assets: none. Third-party packages: none.
-Token usage: 0. Model cost: $0.00.**
+**Requires network: No. Third-party packages: none. Token usage: 0. Model cost: $0.00.
+Bundled assets: one 4.92 MB dense-retrieval index, shipped switched off; no reported
+number depends on it. An optional model-backed rerank tier exists behind `USE_LLM=1`
+and is off; with it unset the agent imports nothing beyond the standard library.**
 
 ## Results
 
@@ -12,11 +14,11 @@ Scored by the organizer's own `evaluate()` over the 200 public sessions.
 
 | scenario | n | HitRate@10 | MRR | MTTC | score |
 |---|---|---|---|---|---|
-| buying | 80 | 0.988 | 0.921 | 1.80 | 0.9541 |
-| browsing | 80 | 0.988 | 0.887 | 1.94 | 0.9411 |
+| buying | 80 | 1.000 | 0.946 | 1.74 | 0.9691 |
+| browsing | 80 | 1.000 | 0.903 | 1.80 | 0.9548 |
 | intent_override | 30 | 1.000 | 0.906 | 3.77 | 0.9166 |
 | boundary | 10 | 1.000 | 1.000 | 2.60 | 0.9680 |
-| **overall** | **200** | **0.990** | **0.909** | **2.19** | **0.9440** |
+| **overall** | **200** | **1.000** | **0.925** | **2.11** | **0.9554** |
 | shipped baseline | 200 | 0.125 | 0.068 | 9.81 | 0.1067 |
 
 `exceptions=0 discarded=0 dropped_slots=0 short_slates=0`.
@@ -29,10 +31,13 @@ are gated in CI:
 
 | gate | what it varies | result |
 |---|---|---|
-| held-out split | which half of the public set | dev 0.9288 / held 0.9592 |
-| `make risk` | how targets are drawn | size-biased 0.9209, sqrt 0.8396, uniform **0.7484** |
-| `make paraphrase` | how the customer words things | reworded 0.9052, punctuation 0.9345, filler 0.9068, synonym **0.8752** |
-| `--no-fast-path` | template matching disabled entirely | **0.9428** |
+| held-out split | which half of the public set | dev 0.9476 / held 0.9633 |
+| `make risk` | how targets are drawn | size-biased 0.9432, sqrt 0.9158, uniform **0.8560** |
+| `make paraphrase` | how the customer words things | reworded 0.9412, punctuation 0.9518, filler 0.9425, synonym **0.9143** |
+| `--no-fast-path` | template matching disabled entirely | **0.9543** |
+| `make sessions` | 22 manufactured session sets | 91.0% rank-1 (`front_loaded_buying`) down to 13.5% (`compound_hard`) |
+| `make deviations` | every live and switched-off component, on all of the above | ten components, all verdicts hold; health clean, no `unmoved` warning |
+| `make dense` | the Tier 1 dense track, on every gate | loses on 14 of 15 readable sets; a wash on the full battery. **Switched off** |
 
 Read `uniform` as a pessimistic bound rather than a forecast: a uniformly drawn
 target is not merely less popular, it is a genuinely harder product with thinner
@@ -40,7 +45,9 @@ text.
 
 ## Setup
 
-Python 3.10 or later (developed on 3.14). No dependencies.
+Python 3.10 or later (developed on 3.14). No dependencies. The bundled dense asset is
+read with `array` and `struct`; nothing needs installing to use it, and the agent runs
+identically if it is deleted.
 
 ```bash
 gzip -dkc catalog.jsonl.gz > data/catalog.jsonl   # one time, ~19 MB packed
@@ -53,11 +60,13 @@ pip install -r submission/requirements.txt        # no-op, stdlib only
 PYTHONPATH=. python3 -m harness.run --agent submission.agent:Agent
 ```
 
-No environment variables are required or read.
+One environment variable is read, and only one: `USE_LLM=1` opts into the model-backed
+rerank tier (below). Unset, nothing in the agent reads the environment, the network or a
+credential, which is the configuration every number in this file was measured in.
 
 ## Architecture
 
-Nine stages, all in memory, all built once at construction.
+Ten stages, all in memory, all built once at construction.
 
 ```
 __init__(catalog_path)          catalog, buckets, BM25 postings, priors,
@@ -67,7 +76,9 @@ respond(session_id, msg, turn, k)
     interpret(msg)   -> ParsedTurn   template, then cues, then vocabulary
     update(state)    -> SessionState typed slots; targeted override
     choose(state)    -> Route        precision / discovery / recovery / boundary
-    ranked(state)    -> pool         category filter, then BM25 + popularity blend
+    ranked(state)    -> pool         category filter, then BM25 + popularity
+                                    blend, less what was refused
+    unseen(ordered)  -> pool         drop what this session already showed
     compose(ordered) -> head + tail  deferred commitment
     pad(chosen)      -> 10 ids       coarser group, then global popularity
     rerank(ten)      -> 10 ids       rare phrase evidence; a permutation
@@ -99,24 +110,62 @@ occupied. So the agent commits to its single best guess and spends the remaining
 slots on inventory no turn has reached, until the customer runs out of things to
 say. Worth +0.064 and it raises coverage while doing it.
 
+**A slot is never spent twice.** The same irreversibility cuts the other way: a
+product that was shown and did not end the session is provably not the answer,
+so showing it again converts nothing. Before this, 62.9% of impressions on the
+hardest session set were repeats, and 60 of its 78 misses had the target inside
+the slot budget the session had already spent. A redirect clears the memory,
+because a pre-pivot impression was never scored against the new target. Ablating
+it is negative on every readable set.
+
+**"Not polyester" is not a request for polyester.** Constraint text used to be
+one positive bag of words, so a refusal was scored as evidence for the thing
+refused, and the agent served that material at 2 to 5 times its shelf rate. The
+cue is now split from the text, held out of the positive query, and subtracted.
+The cue set is narrower than English allows -- no bare `no` or `non-` -- because
+this catalog spells attribute *names* that way (`Non-Polarized`, `No Closure
+closure`) 431 times, three of which reach the public set. **The measurement says
+the win is holding the term out, not subtracting it:** the whole mechanism is
+worth 0.215 on the set that tests it, the subtraction inside it 0.014.
+
 ## Limitations, and things that did not work
 
 Five components were built, measured and **shipped switched off**. Each keeps a
 live switch and a test asserting it is off, so they are results rather than
 missing features.
 
-| built | measured | shipped |
-|---|---|---|
-| Route-conditional prior weight | +0.014 on dev, *worse* on held-out, non-monotone surface | neutral |
-| Restarting the turn budget after a redirect | +0.003 adversarial, -0.0005 real, inside seed noise | neutral |
-| Maximal marginal relevance slate | loses 0.005, and improves the more its relevance term is switched off | off |
-| Converging early on a confident ranking | HitRate 0.990 to 0.995, MRR 0.909 to 0.781 | off |
-| Profile-weighted ranking | monotonically negative | weight 0.0 |
+| built | measured on the public 200 | re-measured on 18 harder sets | shipped |
+|---|---|---|---|
+| Route-conditional prior weight | +0.014 on dev, *worse* on held-out | +0.002 mean, 8 sets better and 7 worse | neutral |
+| Restarting the turn budget after a redirect | +0.003 adversarial, -0.0005 real | **+0.005 mean, 11 better and 1 worse** | neutral |
+| Maximal marginal relevance slate | loses 0.005, and improves the more its relevance term is switched off | loses on 13 of 18; the monotonicity does not reproduce | off |
+| Converging early on a confident ranking | HitRate 0.990 to 0.995, MRR 0.909 to 0.781 | loses on 15 of 18, including the set with 150 misses | off |
+| Profile-weighted ranking | monotonically negative | negative on 18 of 18 at weight 0.4 | weight 0.0 |
+
+Every one of the five was first measured on a set where 176 of 200 sessions
+already convert at rank 1, which can detect harm and not benefit. All five were
+re-swept against 22 manufactured session sets running from 88% rank-1 down to
+9%, through the organizer's own evaluator. **All five decisions survived. Two of
+the explanations behind them did not**, and that is the more useful output.
 
 The MMR result is the informative one. A diversity objective that gets better
 the more you ignore relevance is not being rewarded for diversity; it is being
 rewarded for reaching deeper into the pool. Redundancy is not what costs here,
-irreversibility is.
+irreversibility is. On the harder sets the *monotonicity* turns out to be a
+property of the public target distribution rather than of the technique -- one
+set runs the other way -- but the mechanism holds, and it is confirmed by two
+sets that disagree about the two slate policies in exactly the way it predicts.
+Where the target's card carries one feature and no price, so the ranking has
+almost no text to work with, MMR lifts HitRate from 0.610 to 0.715 at no cost in
+MRR, because its reach adapts to how flat the scores are while a fixed rank
+offset reaches a fixed distance. It still loses everywhere the text is real.
+
+Two components pay under a named condition and are reported that way rather than
+switched on. Restarting the post-redirect budget is worth +0.037 where a
+redirect names a category the session did not open on, and improves both
+adversarial risk columns, but it regresses the public set, both halves of the
+held-out split and the paraphrase column by 0.0004 to 0.0008 each, and the
+shipping rule for that phase was fixed in advance and admits no regression.
 
 The profile result is a coverage/signal inversion rather than emptiness. The tags
 most customers carry (`fit` in 163 of 200 sessions, `material` 154, `comfort`
@@ -124,7 +173,12 @@ most customers carry (`fit` in 163 of 200 sessions, `material` 154, `comfort`
 each matches 15-28% of the catalog, so boosting them promotes a quarter of the
 shelf. The tags that do predict (`warmth` 4.0x, `performance` 2.6x) appear in 12
 to 26 sessions. Restricting the boost to those cuts the damage but still does not
-clear the baseline.
+clear the baseline. The obvious objection is that the ranking simply had no room
+left, so it was re-measured where there is plenty: on the set where the customer
+discloses nothing at all, the profile is the only evidence beyond the category,
+and two thirds of sessions are not at rank 1, the weight is the most harmful it
+is anywhere. **When the profile is the only thing left, it is still worse than
+nothing.**
 
 **Known weaknesses.**
 
@@ -142,36 +196,63 @@ clear the baseline.
   need customer-side evidence this estimator does not have.
 - There is no cross-session identity, so no long-term user profile is possible.
   What is implemented is within-session context distillation.
-- No dense retrieval and no model-backed reranking. `ranking.Reranker` is the
-  seam for one; its contract is that an implementation returns a permutation, so
-  a model tier cannot cost coverage. Nothing is built behind it, and no reported
-  number depends on one.
+- **Dense retrieval is built and switched off, which is a result rather than an
+  omission.** `submission/src/dense.py` is a 64-dimension latent semantic space
+  over the catalog's own `title` + `features`, and `routing.choose()` selects
+  between it and the lexical index. It loses on 14 of the 15 readable synthetic
+  sets and is a wash on the full battery, because a latent space's leading
+  dimensions encode *category* -- exactly the structure the bucket filter has
+  already applied -- so it is a coarser retriever than the one already in place,
+  not a finer one. The case for building it rested on a fallback ("no query token
+  matches, so ranking drops to popularity order") that fires on 0.0% of public
+  turns. `make dense` prints the whole table.
+- The model-backed rerank tier is built and switched off. `src/llm.py` sits behind
+  `ranking.Reranker`, composed **over** the phrase rerank rather than in place of
+  it, so a timeout or a refusal serves exactly what the offline agent would have
+  served. Two gates keep it off: `USE_LLM=1` decides whether it is built at all,
+  and `ranking.LLM_RERANK` whether a built stage is consulted.
+  **Measured and switched off** (findings 3.36). `claude-haiku-4-5` over all 200
+  sessions, 323 live calls: **0.9333 against 0.9554**, hit@10 and MTTC unchanged
+  to the digit, all of the loss in MRR (0.925 to 0.852). The model is not bad at
+  the task -- it fixed 6 of the 20 sessions a permutation could win, which no
+  lexical stage reaches. It is the base rate: 180 of 200 sessions already convert
+  at rank 1, so a 12.2% error rate on those outweighs a 30% success rate on the
+  other 20 by 22 to 1. Cost $0.385 and a p50 of 1,087 ms per turn against
+  0.30 ms. Extrapolated to 800 sessions that is ~27 minutes and ~$1.54 for a
+  negative return. Not re-taken on the frozen sets, so the claim is "it loses on
+  the public 200", not "it loses".
 
 ## Cost and efficiency disclosure
 
 | measure | value |
 |---|---|
-| Model | none |
+| Model | none on the scored path; `claude-haiku-4-5` behind `USE_LLM=1`, measured at 0.9333 and switched off |
 | Prompt / completion tokens | 0 / 0 |
 | Estimated API cost | $0.00 |
 | Network calls | none |
-| Per-turn latency | p50 0.31 ms, p95 1.55 ms, max 2.61 ms over 436 turns |
-| One-time index build | 3.1 s |
-| Resident memory | 106 MB |
-| Bundled assets | none |
+| Environment read | `USE_LLM` only; unset in every number above |
+| Per-turn latency | p50 0.30 ms, p95 1.59 ms, max 2.78 ms over 422 turns |
+| Same, with Tier 2 on | p50 1,087 ms, p95 1,393 ms, max 8,604 ms; 326,851/11,628 tokens, $0.3850 |
+| One-time index build | 3.1 s (3.09 s without the dense asset) |
+| Resident memory | 124 MB (118 MB without the dense asset) |
+| Bundled assets | `assets/dense.bin`, 4.92 MB, loaded in 2.6 ms, **weight 0** |
 
 Latency and memory come from the same run as the reported score.
 
 ## Reproducing every number above
 
 ```bash
-make eval                                          # 0.9440 and the health line
+make eval                                          # 0.9554 and the health line
 make baseline                                      # asserts the frozen 0.10671 reference
 make split                                         # dev 0.9288 / held 0.9592
 make risk                                          # target-distribution surface
 make paraphrase                                    # wording surface
-make test                                          # 216 tests
-python3 -m harness.run --no-fast-path --no-diff    # 0.9428, general path alone
+make sessions                                      # the 22 frozen synthetic sets
+make deviations                                    # every component with a live switch, re-swept
+make dense                                         # the Tier 1 ablation, switched on
+make llm                                           # the Tier 2 ablation; needs a key
+make test                                          # 335 tests
+python3 -m harness.run --no-fast-path --no-diff    # 0.9543, general path alone
 ```
 
 `make eval` writes `runs/latest.json` and prints a per-scenario table, a health
@@ -186,6 +267,10 @@ submission/
   agent.py           entry point, exports Agent
   requirements.txt   empty; stdlib only
   README.md          this file
+  assets/
+    dense.bin        4.92 MB latent space over the catalog; shipped at weight 0.
+                     Rebuild: python3 tools/build_dense.py (needs numpy; offline,
+                     deterministic, never imported at scoring time)
   src/
     agent.py         orchestration, exception envelope, debug dict
     understand.py    message -> ParsedTurn, three layers
@@ -195,11 +280,13 @@ submission/
     routing.py       retrieval policy per route
     probe.py         expected-disclosure question selection
     ranking.py       the blend, the slate, the rerank seam
+    dense.py         Tier 1 latent retrieval; switched off
+    llm.py           Tier 2 model rerank; switched off, lazily imported
     response.py      customer-facing reply, composed from state
     catalog.py       one-pass build: buckets, priors, indexes
     bm25.py          flat token-id postings
     phrases.py       whole-phrase rarity index
     text.py          the single tokenisation path
-    tests/           216 tests
+    tests/           256 tests
 harness/             measurement and robustness gates
 ```
