@@ -58,6 +58,30 @@ class NeutralityTest(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertEqual(routing.choose(state).alpha, ranking.ALPHA)
 
+    def test_no_route_deviates_on_the_dense_track(self) -> None:
+        """The dense track is bundled, loaded, and off on every route.
+
+        `None` means "defer to `ranking.DENSE_WEIGHT`", which is zero, so no
+        route runs the dense retriever and no reported number depends on the
+        bundled asset (findings 3.35).
+        """
+        states = (
+            dialogue.SessionState(),
+            dialogue.SessionState(constraints=("a",)),
+            dialogue.SessionState(constraints=("a", "b")),
+            dialogue.SessionState(refused=("material",)),
+            dialogue.SessionState(pivoted=True, pivot_turn=3),
+        )
+        for state in states:
+            with self.subTest(state=state):
+                route = routing.choose(state)
+                self.assertIsNone(route.dense_weight)
+                self.assertEqual(route.reach, 0)
+
+    def test_the_shared_dense_weight_is_zero(self) -> None:
+        self.assertEqual(ranking.DENSE_WEIGHT, 0.0)
+        self.assertEqual(ranking.DENSE_NEGATION_WEIGHT, 0.0)
+
     def test_no_route_deviates_on_the_turn_budget(self) -> None:
         states = (
             dialogue.SessionState(),

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from submission.src import catalog as catalog_module
 from submission.src import dialogue
+from submission.src import llm
 from submission.src import probe
 from submission.src import ranking
 from submission.src import response
@@ -30,7 +31,10 @@ class Agent:
               Off, the agent runs on cue detection and catalog vocabulary alone,
               which is how that path is verified rather than assumed.
         """
-        self.catalog = catalog_module.build(catalog_path)
+        # Order matters: the reranker decides whether the catalog keeps the
+        # product text it needs, and neither is built again afterwards.
+        self._reranker = llm.build()
+        self.catalog = catalog_module.build(catalog_path, cards=llm.wanted())
         self.debug: dict = {}
         self._fast_path = fast_path
         self._global_slate = tuple(
@@ -44,6 +48,7 @@ class Agent:
         self._asked: str | None = None
         self._profile_ids: frozenset[int] = frozenset()
         self._scores: tuple[float, ...] = ()
+        self._usage = llm.no_usage()
 
     def reset(self, session_id: str, user_profile: dict) -> None:
         """Starts a session. No I/O and no indexing happen here.
@@ -64,6 +69,7 @@ class Agent:
         self._contenders = 0
         self._head = 0
         self._asked = None
+        self._usage = llm.no_usage()
         self.debug = {}
 
     def respond(
@@ -72,7 +78,9 @@ class Agent:
         """Returns one turn's message, probe, and slate."""
         try:
             recommendations = self._serve(session_id, user_message, top_k)
-            asked = probe.choose(self._state, self.catalog.taxonomy)
+            asked = probe.choose(
+                self._state, self.catalog.taxonomy, self.catalog
+            )
             message = response.compose(
                 self._state, self._parsed, self._contenders,
                 self._head, len(recommendations), asked,
@@ -86,13 +94,44 @@ class Agent:
             asked = probe.WILDCARD
             message = response.FALLBACK
             self._scores = (0.0,) * len(recommendations)
+        self._usage = self._take_usage()
+        self._record_usage()
         self._asked = asked
         return {
             "message": message,
             "ask_attribute": asked,
             "recommendations": self._payload(recommendations),
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+            "usage": {
+                "prompt_tokens": self._usage["prompt_tokens"],
+                "completion_tokens": self._usage["completion_tokens"],
+            },
         }
+
+    def _take_usage(self) -> dict:
+        """Returns the model usage this turn spent, honest zeros without one.
+
+        Taken outside the envelope above, so a turn that degraded still
+        reports whatever it had already spent before it did.
+        """
+        if self._reranker is None:
+            return llm.no_usage()
+        return self._reranker.take()
+
+    def _record_usage(self) -> None:
+        """Publishes the turn's model cost into the trace, flat.
+
+        Skipped entirely without a model, so the offline trace keeps the exact
+        key set every earlier run was read with.
+        """
+        if self._reranker is None:
+            return
+        self.debug["llm"] = self._reranker.model
+        self.debug["calls"] = self._usage["calls"]
+        self.debug["failures"] = self._usage["failures"]
+        self.debug["tokens"] = (
+            self._usage["prompt_tokens"] + self._usage["completion_tokens"]
+        )
+        self.debug["llm_ms"] = self._usage["milliseconds"]
 
     def _payload(self, asins: tuple[str, ...]) -> list[dict]:
         """Returns the recommendation list, scored where a score exists.
@@ -130,7 +169,8 @@ class Agent:
         route = routing.choose(state)
         served = ranking.slate(
             self.catalog, state, size, route.alpha, route.defer_turns,
-            self._profile_ids,
+            self._profile_ids, route.dense_weight, route.reach,
+            self._reranker,
         )
         asins = tuple(self.catalog.slate_of(served.indices))
         self._state = state.with_slate(asins)
@@ -166,6 +206,19 @@ class Agent:
             return tuple(self.catalog.slate_of(pool[:ranking.SLATE_SIZE]))
         return self._global_slate
 
+    def _dense_of(self, route: routing.Route) -> float:
+        """Returns the dense weight this turn actually ran at.
+
+        A route carries `None` when it does not specialise, so the trace has
+        to resolve it the same way `ranking.slate` does or it would report a
+        switch as off while it was on.
+        """
+        if not self.catalog.dense:
+            return 0.0
+        if route.dense_weight is None:
+            return ranking.DENSE_WEIGHT
+        return route.dense_weight
+
     def _record(
         self,
         state: dialogue.SessionState,
@@ -196,6 +249,10 @@ class Agent:
             "exhausted": state.exhausted,
             "head": served.head,
             "contenders": served.contenders,
+            "refused": state.excluded_text or "-",
+            "shown": len(state.shown),
             "alpha": route.alpha,
+            "dense": self._dense_of(route),
+            "reach": route.reach,
             "top1": asins[0] if asins else "-",
         }

@@ -8,7 +8,7 @@ constraint is usually an exact substring of exactly one product. 89.9% of the
 That makes phrase evidence very sharp and very brittle at once, so it is used
 only to reorder a slate that has already been chosen by the blend. A constraint
 the index has never seen contributes nothing and the slate is returned
-untouched, which bounds the downside at zero (findings 3.23).
+untouched, so this stage's own downside is zero (findings 3.23).
 """
 
 from __future__ import annotations

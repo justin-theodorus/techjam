@@ -1,9 +1,15 @@
 """Choosing how to retrieve, from what the conversation looks like so far.
 
-Four routes over one pipeline. The route does not change *what* is retrieved --
-that is always the resolved category buckets scored by the blend -- it changes
-how much the ranking trusts the customer's words against the popularity prior,
-and how long the slate stays narrow before it opens.
+Four routes over two retrievers. A route sets how much the ranking trusts the
+customer's words against the popularity prior, how long the slate stays narrow
+before it opens, and -- since Phase 6U -- which retrievers run at all: the
+lexical index over the resolved category buckets, the dense latent space, or
+both, with the discovery route able to reach past the bucket entirely.
+
+That last part is what makes routing a real choice rather than a second set of
+constants. While both routes pointed at one retriever, any route-conditional
+setting was `alpha` re-tuned to the public target distribution wearing a route
+as a disguise, which is exactly what findings 3.30 caught and rejected.
 
 Every route ships at the same constants until a measurement moves it, so
 routing costs nothing until it earns something. A route whose specialisation
@@ -48,6 +54,19 @@ PRECISION_ALPHA = ranking.ALPHA
 # delays it (findings 3.26).
 RECOVERY_RESTART = 0
 
+# How much the dense track weighs on each route, and how far past the category
+# bucket the discovery route may reach for candidates. `None` means "whatever
+# `ranking.DENSE_WEIGHT` says", which is the neutral setting: no route
+# specialises, so routing still costs nothing until it earns something.
+#
+# The brief assigns dense retrieval to Browsing, and measurement puts its value
+# somewhere else entirely. Both halves ship at neutral and the table is in
+# findings 3.35, because what it found is more useful than what it was looking
+# for.
+PRECISION_DENSE: float | None = None
+DISCOVERY_DENSE: float | None = None
+DISCOVERY_REACH = 0
+
 
 @dataclass(frozen=True)
 class Route:
@@ -56,6 +75,8 @@ class Route:
     name: str
     alpha: float
     defer_turns: int
+    dense_weight: float | None = None
+    reach: int = 0
 
 
 def choose(state: dialogue.SessionState) -> Route:
@@ -69,8 +90,14 @@ def choose(state: dialogue.SessionState) -> Route:
     if state.scenario == dialogue.BOUNDARY or state.refused:
         return Route(BOUNDARY, ranking.ALPHA, ranking.MAX_DEFER_TURNS)
     if len(state.constraints) >= MIN_PRECISION_CONSTRAINTS:
-        return Route(PRECISION, PRECISION_ALPHA, ranking.MAX_DEFER_TURNS)
-    return Route(DISCOVERY, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS)
+        return Route(
+            PRECISION, PRECISION_ALPHA, ranking.MAX_DEFER_TURNS,
+            PRECISION_DENSE,
+        )
+    return Route(
+        DISCOVERY, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS,
+        DISCOVERY_DENSE, DISCOVERY_REACH,
+    )
 
 
 def _recovery(state: dialogue.SessionState) -> Route:

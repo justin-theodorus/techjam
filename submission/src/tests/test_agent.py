@@ -10,6 +10,13 @@ from submission.src import ranking
 from submission.src.tests import fixtures
 
 OPENING = f"I'm looking for {fixtures.SNEAKER_BUCKET}, but I'm still exploring."
+
+# `local_evaluator.ALLOWED_ATTRIBUTES`, restated rather than imported: the
+# submission bundle ships without the evaluator.
+ALLOWED_ATTRIBUTES = frozenset((
+    "category", "material", "color", "size", "style", "brand", "budget",
+    "feature", "use_case", "other",
+))
 DISCLOSURE = "For that, what matters is: hemp upper; cork footbed."
 
 
@@ -41,7 +48,7 @@ class AgentTest(unittest.TestCase):
             {"message", "ask_attribute", "recommendations", "usage"},
         )
         self.assertIsInstance(response["message"], str)
-        self.assertEqual(response["ask_attribute"], probe.WILDCARD)
+        self.assertIn(response["ask_attribute"], ALLOWED_ATTRIBUTES)
         self.assertEqual(
             response["usage"], {"prompt_tokens": 0, "completion_tokens": 0}
         )
@@ -65,12 +72,38 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(set(item), {"parent_asin", "score"})
             self.assertIsInstance(item["score"], float)
 
-    def test_the_probe_is_the_wildcard_from_the_first_turn(self) -> None:
-        """Derived, not configured: no specific arm can out-yield the union."""
+    def test_every_probe_names_an_attribute_the_evaluator_accepts(
+        self
+    ) -> None:
+        """A word outside the enum is silently read as the wildcard."""
         self.agent.reset("s1", {})
         for turn in range(1, 11):
             response = self.agent.respond("s1", OPENING, turn, 10)
-            self.assertEqual(response["ask_attribute"], probe.WILDCARD)
+            with self.subTest(turn=turn):
+                self.assertIn(
+                    response["ask_attribute"], ALLOWED_ATTRIBUTES | {None}
+                )
+
+    def test_the_probe_never_reaches_for_the_wildcard(self) -> None:
+        """What `probe.SPECIFIC_ARMS` buys, and the whole reason it costs."""
+        self.agent.reset("s1", {})
+        asked = [
+            self.agent.respond("s1", OPENING, turn, 10)["ask_attribute"]
+            for turn in range(1, 6)
+        ]
+
+        self.assertNotIn(probe.WILDCARD, asked)
+
+    def test_switching_specific_arms_off_restores_the_wildcard(self) -> None:
+        """The reported 0.9554 is this branch, so it has to stay reachable."""
+        original = probe.SPECIFIC_ARMS
+        probe.SPECIFIC_ARMS = False
+        self.addCleanup(setattr, probe, "SPECIFIC_ARMS", original)
+
+        self.agent.reset("s1", {})
+        response = self.agent.respond("s1", OPENING, 1, 10)
+
+        self.assertEqual(response["ask_attribute"], probe.WILDCARD)
 
     def test_a_customer_out_of_preferences_stops_being_asked(self) -> None:
         self.agent.reset("s1", {})
