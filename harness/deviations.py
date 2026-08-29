@@ -40,6 +40,7 @@ from evaluator import local_evaluator
 
 from harness import analysis
 from harness import diff
+from harness import identity
 from harness import record
 from harness import run
 from harness import session_axes
@@ -50,6 +51,7 @@ from harness import sessions
 # package in exactly one place.
 MODULES = {
     "dialogue": "submission.src.dialogue",
+    "memory": "submission.src.memory",
     "policy": "submission.src.policy",
     "probe": "submission.src.probe",
     "ranking": "submission.src.ranking",
@@ -296,6 +298,20 @@ DEVIATIONS = (
         "True (shipped on)",
         (("whole session", {"dialogue.SCOPED_EXHAUSTION": False}),),
     ),
+    Deviation(
+        "memory",
+        "memory.ENABLED and its four read gates",
+        "enabled, preferences off (shipped on); zero on every set whose rows "
+        "name no shopper, which is the bit-identical claim taken through the "
+        "sweep. `make memory` is where the component is actually read",
+        (
+            ("off", {"memory.ENABLED": False}),
+            ("-refuse", {"memory.CARRY_REFUSALS": False}),
+            ("-arms", {"memory.CARRY_ARMS": False}),
+            ("-buckets", {"memory.CARRY_BUCKETS": False}),
+            ("+prefer", {"memory.CARRY_POSITIVES": True}),
+        ),
+    ),
 )
 
 # Components that cost money and need a network, and are therefore reachable
@@ -343,7 +359,11 @@ def score(agent, rows: list[dict], catalog_ids: set[str],
     frozen for this phase. The artifact is therefore assembled here, in the
     shape `harness/diff.py` already consumes.
     """
-    recorder = record.RecordingAgent(agent)
+    # Wrapped so a set whose rows name a shopper is scored with those
+    # identities supplied, and so every sweep point starts from an
+    # empty store: `patched` never rebuilds the agent, so without the
+    # proxy's own reset the cell order would decide the result.
+    recorder = record.RecordingAgent(identity.ReturningAgent(agent, rows))
     result = local_evaluator.evaluate(
         recorder, rows, catalog_ids, categories, by_asin)
     analyzed = analysis.analyze(recorder.sessions, rows, result, catalog_ids)
