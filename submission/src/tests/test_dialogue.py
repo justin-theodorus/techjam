@@ -438,3 +438,88 @@ class DeclinedAndIdleTest(unittest.TestCase):
         )
 
         self.assertEqual(folded.idle, 0)
+
+
+class ConstraintStrengthTest(unittest.TestCase):
+    """The card half each constraint came from, recorded and unread.
+
+    Two guarantees. Liveness: the templates that know which half they drew
+    from actually say so, because state nothing reads rots into a field that
+    is always `unknown` without anyone noticing. Inertness: recording it does
+    not reach the ranking, which is the whole basis on which it ships -- the
+    split was measured against an oracle labeller and is worth nothing
+    (see `slots.HARD`).
+    """
+
+    def _drive(self, messages: list[str]) -> dialogue.SessionState:
+        state = dialogue.SessionState()
+        for message in messages:
+            state = dialogue.update(
+                state, understand.interpret(message, RESOLVER), "other",
+                TAXONOMY,
+            )
+        return state
+
+    def test_a_buying_opening_states_a_hard_constraint(self) -> None:
+        state = self._drive([BUYING_OPENING])
+
+        self.assertEqual(state.hard_constraints, ("100% Leather",))
+        self.assertEqual(state.soft_preferences, ())
+
+    def test_an_override_opening_states_a_soft_preference(self) -> None:
+        state = self._drive([OVERRIDE_OPENING])
+
+        self.assertEqual(state.soft_preferences, ("Ribbed knit cuffs",))
+        self.assertEqual(state.hard_constraints, ())
+
+    def test_the_replacement_a_pivot_sends_is_hard(self) -> None:
+        state = self._drive([OVERRIDE_OPENING, PIVOT])
+
+        self.assertIn("cotton", state.hard_constraints)
+
+    def test_a_disclosure_is_left_unlabelled_but_keeps_its_order(self) -> None:
+        # `customer_reply` lists matches in `[*hard, *soft]` order but never
+        # says where the boundary fell, so a label here would be a guess.
+        state = self._drive([EXPLORING_OPENING, DISCLOSURE])
+
+        self.assertEqual(state.hard_constraints, ())
+        self.assertEqual(state.soft_preferences, ())
+        disclosed = [s for s in state.slots if s.turn == 2]
+        self.assertEqual(
+            [(s.value, s.strength, s.reply_index) for s in disclosed],
+            [("cotton", slots.UNKNOWN_STRENGTH, 0),
+             ("color: black", slots.UNKNOWN_STRENGTH, 1)],
+        )
+
+    def test_browsing_labels_nothing_because_it_states_nothing(self) -> None:
+        state = self._drive([EXPLORING_OPENING])
+
+        self.assertEqual(state.hard_constraints, ())
+        self.assertEqual(state.soft_preferences, ())
+
+    def test_strength_never_reaches_the_query(self) -> None:
+        messages = [BUYING_OPENING, DISCLOSURE, PIVOT]
+        labelled = self._drive(messages)
+
+        stripped = dialogue.SessionState()
+        for message in messages:
+            parsed = understand.interpret(message, RESOLVER)
+            stripped = dialogue.update(
+                stripped,
+                dialogue.ParsedTurn(
+                    category=parsed.category, buckets=parsed.buckets,
+                    constraints=parsed.constraints, pivot=parsed.pivot,
+                    scenario_hint=parsed.scenario_hint,
+                    boundary_refusal=parsed.boundary_refusal,
+                    exhausted=parsed.exhausted,
+                    exhausted_arm=parsed.exhausted_arm,
+                    act=parsed.act, confidence=parsed.confidence,
+                ),
+                "other", TAXONOMY,
+            )
+
+        self.assertNotEqual(labelled.hard_constraints, ())
+        self.assertEqual(stripped.hard_constraints, ())
+        self.assertEqual(labelled.query_text, stripped.query_text)
+        self.assertEqual(labelled.constraints, stripped.constraints)
+        self.assertEqual(labelled.excluded_text, stripped.excluded_text)

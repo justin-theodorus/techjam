@@ -38,6 +38,23 @@ CATEGORY = "category"
 # in them at all, so this is the honest majority class rather than a failure.
 DEFAULT = FEATURE
 
+# How firmly the customer stated a constraint, read from which template carried
+# it. The reference simulator splits one product's bullet list into
+# `hard_constraints` (the first two) and `soft_preferences` (the next two), and
+# three of its templates say which half they drew from.
+#
+# Recorded and deliberately unread. Measured with an oracle labeller -- the true
+# `intent_card()` split, which is the ceiling no classifier can beat -- routing
+# retrieval on it is worth nothing: hard-only 0.9437 and soft-only 0.9467
+# against a 0.9473 baseline, and hard-first is bit-identical to baseline because
+# `ranking` queries a `frozenset` of token ids, so order cannot reach the score.
+# The split is positional rather than semantic, and `intent_card()` forces the
+# most generic term -- the bare material word -- into the hard half, so BM25's
+# IDF already separates these better than the label does.
+HARD = "hard"
+SOFT = "soft"
+UNKNOWN_STRENGTH = "unknown"
+
 # Substrings of a `details` key, mapped to the attribute that key describes.
 # Checked longest first, so "fabric type" beats "type".
 KEY_FAMILIES = (
@@ -164,6 +181,12 @@ class Slot:
     value: str
     turn: int
     negated: bool = False
+    # Which half of the intent card this came from, where the template said so.
+    strength: str = UNKNOWN_STRENGTH
+    # Position within the disclosure that carried it. A disclosure reply lists
+    # its matches in `[*hard, *soft]` order but never says where the boundary
+    # fell, so the order is kept even though the label cannot be.
+    reply_index: int = 0
 
 
 class Taxonomy:
@@ -253,12 +276,26 @@ class Taxonomy:
         return min(hits, key=_specificity)
 
     def slots(
-        self, constraints: tuple[str, ...], turn: int
+        self,
+        constraints: tuple[str, ...],
+        turn: int,
+        strengths: tuple[str, ...] = (),
     ) -> tuple[Slot, ...]:
-        """Types a whole constraint list, keeping order."""
+        """Types a whole constraint list, keeping order.
+
+        Args:
+            constraints: The arriving constraint strings.
+            turn: The turn they arrived on.
+            strengths: Index-aligned card halves, where the template named one.
+              Shorter or empty leaves the remainder `UNKNOWN_STRENGTH`.
+        """
         return tuple(
-            Slot(self.classify(value), value, turn, polarity(value)[0])
-            for value in constraints
+            Slot(
+                self.classify(value), value, turn, polarity(value)[0],
+                strengths[index] if index < len(strengths) else UNKNOWN_STRENGTH,
+                index,
+            )
+            for index, value in enumerate(constraints)
         )
 
 

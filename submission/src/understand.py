@@ -23,6 +23,7 @@ import re
 
 from submission.src import category as category_module
 from submission.src import dialogue
+from submission.src import slots as slots_module
 from submission.src import text
 
 LOOKING_PREFIX = "I'm looking for "
@@ -163,16 +164,24 @@ def _from_template(
     """
     if value.startswith(PIVOT_PREFIX):
         _, _, tail = value.partition(PIVOT_SEP)
+        # The replacement an override sends is `hard_constraints[0]`.
+        constraints = _split_semicolons(tail.rstrip("."))
         return dialogue.ParsedTurn(
-            constraints=_split_semicolons(tail.rstrip(".")),
+            constraints=constraints,
             pivot=True,
             scenario_hint=dialogue.OVERRIDE,
             act=dialogue.ACT_RESET,
             confidence=EXACT,
+            strengths=_all(slots_module.HARD, constraints),
         )
 
     if value.startswith(DISCLOSURE_PREFIX):
         body = value[len(DISCLOSURE_PREFIX):]
+        # Deliberately unlabelled. A disclosure reply lists its matches in
+        # `[*hard_constraints, *soft_preferences]` order, so the arrival order
+        # is informative, but it never says where the boundary between the two
+        # fell. `Slot.reply_index` keeps the order; a strength here would be a
+        # guess wearing the same field as the two templates that actually know.
         return dialogue.ParsedTurn(
             constraints=_split_semicolons(body.rstrip(".")),
             act=dialogue.ACT_DISCLOSE,
@@ -214,11 +223,14 @@ def _opening(
 
     if REQUIREMENT_SEP in body:
         head, _, constraint = body.partition(REQUIREMENT_SEP)
+        # A buying opening states `hard_constraints[0]` and nothing else.
+        constraints = _split_semicolons(constraint.rstrip("."))
         return _validated(
             head.strip(),
-            _split_semicolons(constraint.rstrip(".")),
+            constraints,
             dialogue.BUYING,
             resolver,
+            _all(slots_module.HARD, constraints),
         )
 
     # The override opening is the residual, `{category}. {old_value}`, with no
@@ -230,12 +242,21 @@ def _opening(
             split_at = position
     if split_at < 0:
         return None
+    # The override opening states `soft_preferences[-1]` -- the preference the
+    # customer is about to replace on turn 3 or 4.
+    constraints = _split_semicolons(body[split_at + 1:].strip())
     return _validated(
         body[:split_at].strip(),
-        _split_semicolons(body[split_at + 1:].strip()),
+        constraints,
         dialogue.OVERRIDE,
         resolver,
+        _all(slots_module.SOFT, constraints),
     )
+
+
+def _all(strength: str, constraints: tuple[str, ...]) -> tuple[str, ...]:
+    """Returns one card half repeated for every constraint in a template."""
+    return (strength,) * len(constraints)
 
 
 def _validated(
@@ -243,6 +264,7 @@ def _validated(
     constraints: tuple[str, ...],
     hint: str,
     resolver: category_module.Resolver,
+    strengths: tuple[str, ...] = (),
 ) -> dialogue.ParsedTurn | None:
     """Returns an opening parse only when the category is a real bucket."""
     if not resolver.contains(key):
@@ -254,6 +276,7 @@ def _validated(
         scenario_hint=hint,
         act=dialogue.ACT_OPEN,
         confidence=EXACT,
+        strengths=strengths,
     )
 
 

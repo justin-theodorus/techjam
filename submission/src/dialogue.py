@@ -77,6 +77,10 @@ class ParsedTurn:
     exhausted_arm: str | None = None
     act: str = ACT_UNKNOWN
     confidence: float = 0.0
+    # Which half of the intent card each constraint came from, index-aligned
+    # with `constraints`. Only the templates that say so fill this in; empty
+    # means every arriving constraint is `UNKNOWN_STRENGTH`.
+    strengths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -130,6 +134,36 @@ class SessionState:
             return " ".join((*self.constraints, *self.carried_positives))
         return " ".join(
             slot.value for slot in self.slots if not slot.negated
+        )
+
+    @property
+    def hard_constraints(self) -> tuple[str, ...]:
+        """What the customer stated as a requirement, in arrival order.
+
+        Named for the reference simulator's own field so a later reader does
+        not have to translate. Nothing in the shipped agent reads this: routing
+        retrieval on the split was measured against an oracle labeller and is
+        worth nothing (see `slots.HARD`). It is recorded because the parse
+        already knows it and re-deriving it later would cost more than keeping
+        it.
+        """
+        return tuple(
+            slot.value for slot in self.slots
+            if slot.strength == slots_module.HARD
+        )
+
+    @property
+    def soft_preferences(self) -> tuple[str, ...]:
+        """What the customer stated as a preference, in arrival order.
+
+        Only the override opening is provably soft. A disclosure reply lists
+        `[*hard, *soft]` in order but never says where the boundary fell, so
+        those constraints stay `UNKNOWN_STRENGTH` and appear in neither tuple
+        rather than being guessed into one.
+        """
+        return tuple(
+            slot.value for slot in self.slots
+            if slot.strength == slots_module.SOFT
         )
 
     @property
@@ -187,7 +221,7 @@ def update(
           what was said, just not what it was about.
     """
     turn = state.turn + 1
-    arriving = _typed(parsed.constraints, turn, taxonomy)
+    arriving = _typed(parsed.constraints, turn, taxonomy, parsed.strengths)
 
     if parsed.pivot:
         kept = _survivors(state.slots, arriving)
@@ -274,15 +308,22 @@ def _typed(
     constraints: tuple[str, ...],
     turn: int,
     taxonomy: slots_module.Taxonomy | None,
+    strengths: tuple[str, ...] = (),
 ) -> tuple[slots_module.Slot, ...]:
-    """Attaches an attribute and a turn to each arriving constraint."""
+    """Attaches an attribute, a turn and a card half to each constraint."""
+    def strength(index: int) -> str:
+        if index < len(strengths):
+            return strengths[index]
+        return slots_module.UNKNOWN_STRENGTH
+
     if taxonomy is None:
         return tuple(
             slots_module.Slot(slots_module.DEFAULT, value, turn,
-                              slots_module.polarity(value)[0])
-            for value in constraints
+                              slots_module.polarity(value)[0],
+                              strength(index), index)
+            for index, value in enumerate(constraints)
         )
-    return taxonomy.slots(constraints, turn)
+    return taxonomy.slots(constraints, turn, strengths)
 
 
 def _survivors(
