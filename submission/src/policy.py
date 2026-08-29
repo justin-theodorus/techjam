@@ -45,6 +45,18 @@ MIN_PRECISION_CONSTRAINTS = 2
 # (findings 3.46).
 COVERAGE_TURN = 8
 
+# How many turns the recovery stance holds after a redirect, or `0` for the
+# rest of the session.
+#
+# `state.pivoted` is sticky, so at `0` a session that redirects is `RECOVERY`
+# for every turn it has left and the four rungs below can never fire again.
+# Measured (findings 3.53): on `early_pivot`, where every session redirects at
+# turn 2, coverage, stagnation and boundary fire on **0.0%** of 507 turns even
+# though 60.6% of them are past `COVERAGE_TURN`. That is decision 29's defect
+# in a second place -- a branch nobody had counted -- and it costs nothing
+# today only because the rungs carry so little behaviour.
+RECOVERY_TURNS = 0
+
 
 def select(state: dialogue.SessionState) -> str:
     """Returns the policy governing the turn about to be served.
@@ -59,7 +71,7 @@ def select(state: dialogue.SessionState) -> str:
     Args:
         state: The session after the latest message has been folded in.
     """
-    if state.pivoted:
+    if state.pivoted and _recovering(state):
         return RECOVERY
     if state.exhausted or state.turn >= COVERAGE_TURN:
         return COVERAGE
@@ -70,3 +82,10 @@ def select(state: dialogue.SessionState) -> str:
     if len(state.constraints) >= MIN_PRECISION_CONSTRAINTS:
         return PRECISION
     return DISCOVERY
+
+
+def _recovering(state: dialogue.SessionState) -> bool:
+    """Whether a redirected session is still inside its recovery window."""
+    if RECOVERY_TURNS <= 0:
+        return True
+    return state.turn - state.pivot_turn < RECOVERY_TURNS
