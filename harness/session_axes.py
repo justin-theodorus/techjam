@@ -39,6 +39,12 @@ TEXT_NAMES = ("verbatim", "synonym", "abbreviate", "negate", "comparative",
 PROFILE_NAMES = ("public", "wide", "adversarial", "empty")
 DIALOGUE_NAMES = ("default", "front_loaded", "silent", "early_pivot",
                   "late_pivot", "unrelated_pivot")
+SHOPPER_NAMES = ("distinct", "returning")
+
+# How many sessions one returning shopper is given. Three, because two
+# cannot distinguish "memory helped" from "the second visit was easier",
+# and every visit past the first costs a third of the set's width.
+VISITS_PER_SHOPPER = 3
 
 
 @dataclass(frozen=True)
@@ -482,6 +488,127 @@ SCENARIO_MIX = counterfactual.SCENARIO_MIX
 
 
 @dataclass(frozen=True)
+class Shoppers:
+    """Who each row belongs to, and the target that visit lands on."""
+
+    targets: tuple[dict, ...]
+    ids: tuple[str | None, ...]
+    visits: tuple[int, ...]
+
+
+def _members(candidates: list[dict],
+             facts: CatalogFacts) -> dict[str, list[dict]]:
+    """Groups the drawable products by the bucket a session opens with."""
+    grouped: dict[str, list[dict]] = collections.defaultdict(list)
+    for product in candidates:
+        grouped[facts.bucket[str(product["parent_asin"])]].append(product)
+    return grouped
+
+
+def _visits(anchor: dict, members: list[dict], scheme: str, bucket: str,
+            rng: random.Random) -> list[dict]:
+    """Returns one shopper's visits, the anchor first.
+
+    Later visits are drawn from the anchor's own bucket under the set's own
+    weighting scheme. Holding that rule fixed is what makes the visit blocks
+    comparable at all: drawn any other way, a later block confounds "memory
+    helped" with "this one was easier", which is a difference the control can
+    only subtract after the fact rather than prevent.
+    """
+    chosen = [anchor]
+    taken = {str(anchor["parent_asin"])}
+    available = [
+        product for product in members
+        if str(product["parent_asin"]) not in taken
+    ]
+    weights = counterfactual.weight_schemes(available)[scheme]
+    while len(chosen) < VISITS_PER_SHOPPER and available:
+        total = sum(weights)
+        if total <= 0.0:
+            break
+        cut = rng.random() * total
+        running = 0.0
+        for position, weight in enumerate(weights):
+            running += weight
+            if running >= cut:
+                break
+        chosen.append(available.pop(position))
+        weights.pop(position)
+    # An intersected pool such as `crowded+thin` can leave a bucket with one
+    # or two members. Refuse the set rather than pad from another bucket: a
+    # shopper whose visits span two departments has nothing true to remember,
+    # which is the one property this instrument exists to have. Repeating a
+    # target would be worse still, since it hands a later visit a session the
+    # shopper has already converted.
+    if len(chosen) < VISITS_PER_SHOPPER:
+        raise ValueError(
+            f"bucket {bucket!r} holds {len(members)} drawable products, "
+            f"too few for {VISITS_PER_SHOPPER} distinct visits"
+        )
+    return chosen
+
+
+
+def shoppers(name: str, targets: list[dict], facts: CatalogFacts,
+             candidates: list[dict], scheme: str,
+             rng: random.Random) -> Shoppers:
+    """Assigns an identity to each row, and the visits that identity implies.
+
+    The sixth axis, and the only one that relates rows to each other: an
+    identity is by definition not a property of one row, so this reads the
+    whole drawn target list where every other axis reads one product.
+
+    Rows are laid out visit-major, so every first visit is scored before any
+    second visit. That is not cosmetic: `evaluate()` walks the rows in order,
+    so a memory has to be written by an earlier row to be read by a later one.
+
+    Each shopper's first visit is the target the set already drew for that
+    position, so the visit-1 block is distributed exactly as any other set's
+    rows are; only the later visits are drawn here.
+
+    Args:
+        name: One of `SHOPPER_NAMES`.
+        targets: The products `_draw` selected, in row order.
+        facts: Bucket membership, for keeping a shopper inside one bucket.
+        candidates: The pool those targets were drawn from.
+        scheme: The set's own weighting scheme, reused for the later visits.
+        rng: This axis's own generator, never the set's profile generator.
+
+    Raises:
+        ValueError: If `name` is not a known identity axis value.
+    """
+    if name not in SHOPPER_NAMES:
+        raise ValueError(f"unknown shoppers {name!r}")
+    total = len(targets)
+    if name == "distinct":
+        return Shoppers(tuple(targets), (None,) * total, (0,) * total)
+
+    if total < VISITS_PER_SHOPPER:
+        raise ValueError(
+            f"{total} rows cannot hold a shopper of "
+            f"{VISITS_PER_SHOPPER} visits"
+        )
+    count = total // VISITS_PER_SHOPPER
+    members = _members(candidates, facts)
+    groups = []
+    for shopper in range(count):
+        bucket = facts.bucket[str(targets[shopper]["parent_asin"])]
+        groups.append(
+            _visits(targets[shopper], members[bucket], scheme, bucket, rng)
+        )
+
+    placed = list(targets)
+    ids: list[str | None] = [None] * total
+    visits = [0] * total
+    for position in range(count * VISITS_PER_SHOPPER):
+        shopper, visit = position % count, position // count
+        placed[position] = groups[shopper][visit]
+        ids[position] = f"shopper_{shopper:04d}"
+        visits[position] = visit + 1
+    return Shoppers(tuple(placed), tuple(ids), tuple(visits))
+
+
+@dataclass(frozen=True)
 class Recipe:
     """One reproducible session set: a point in the five-axis space.
 
@@ -499,6 +626,7 @@ class Recipe:
     text: str = "verbatim"
     profiles: str = "public"
     dialogue: str = "default"
+    shoppers: str = "distinct"
 
     @property
     def is_authored(self) -> bool:
