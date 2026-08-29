@@ -26,6 +26,7 @@ from __future__ import annotations
 from playground import rederive
 from submission.src import agent as agent_module
 from submission.src import dialogue
+from submission.src import orchestrate
 from submission.src import policy as policy_module
 from submission.src import probe
 from submission.src import ranking
@@ -97,6 +98,9 @@ class ExplainingAgent(agent_module.Agent):
             "state": _state(state),
             "policy": _policy(state, self._policy),
             "route": _route(route),
+            "orchestration": _orchestration(
+                self.catalog, state, self._workflow, route.alpha
+            ),
             "ranking": rederive.stages(
                 self, state, route, served, self._top_k
             ),
@@ -274,6 +278,40 @@ def _route(route) -> dict:
                 ("diversity", route.diversity),
             ) if value is not None
         ] + (["reach"] if route.reach else []),
+    }
+
+
+def _orchestration(catalog, state, workflow, alpha: float) -> dict:
+    """What each ordering was worth this turn, and why one of them won.
+
+    Re-prices every candidate rather than reading a logged answer, for the
+    same reason `rederive` re-runs the ranking stages: a panel that trusts the
+    agent's own account cannot catch the agent being wrong.
+    """
+    candidates = []
+    for name in orchestrate.CANDIDATES:
+        has_evidence = orchestrate.eligible(catalog, state, name)
+        share = orchestrate.spent(
+            catalog, state,
+            orchestrate.ordered(catalog, state, name, alpha),
+        )
+        candidates.append({
+            "ordering": name,
+            "spent": round(share, 3),
+            "eligible": has_evidence,
+            "refuted": share >= orchestrate.SPENT_RATIO,
+            "chosen": name == workflow.ordering,
+        })
+    return {
+        "enabled": orchestrate.ENABLED,
+        "ordering": workflow.ordering,
+        "switched": workflow.switched,
+        "reason": workflow.reason,
+        "refuted_slates": orchestrate.refuted(state),
+        "threshold": orchestrate.SPENT_RATIO,
+        "horizon": orchestrate.HORIZON,
+        "stages": list(workflow.stages),
+        "candidates": candidates,
     }
 
 

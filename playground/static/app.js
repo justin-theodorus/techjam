@@ -218,6 +218,7 @@ function renderPipe() {
     + statePanel(e)
     + policyPanel(e)
     + routePanel(e)
+    + orchestrationPanel(e)
     + retrievalPanel(r)
     + rankingPanel(r, t)
     + shapePanel(r, t)
@@ -330,6 +331,44 @@ function routePanel(e) {
   return panel(4, 'Retrieval route', `alpha ${r.alpha}`, body);
 }
 
+/* 5 --------------------------------------------------------- orchestration */
+
+function orchestrationPanel(e) {
+  const o = e.orchestration || {};
+  if (!o.candidates) return '';
+  const rows = o.candidates.map(c => {
+    const why = !c.eligible
+      ? '<span class="muted">no evidence of its own</span>'
+      : (c.refuted ? '<span class="pill">head disproven</span>'
+                   : '<span class="muted">head still unserved</span>');
+    const mark = c.chosen ? ' class="best"'
+      : (c.eligible ? '' : ' class="dead"');
+    return `<tr${mark}>
+      <td>${c.chosen ? '<b>' + esc(c.ordering) + '</b>' : esc(c.ordering)}</td>
+      <td class="num">${pct(c.spent)}</td>
+      <td>${why}</td></tr>`;
+  }).join('');
+  const headline = o.switched
+    ? `<div class="banner ok"><b>Re-orchestrated.</b> The blend's own head has
+       been served and did not end the session, so this turn ranks the same
+       pool by <code>${esc(o.ordering)}</code> instead.</div>`
+    : `<div class="muted" style="font-size:12px;margin-bottom:8px">
+       A slate that was served and did not end the session is provably wrong,
+       which is the only signal here that is about correctness rather than
+       about confidence. While the blend's head still holds products no turn
+       has served, there is nothing to switch away from.</div>`;
+  const body = headline + `<dl class="kv">
+      <dt>slates disproven</dt><dd>${o.refuted_slates}</dd>
+      <dt>switch at</dt><dd>${pct(o.threshold)} of the top ${o.horizon}</dd>
+      <dt>reason</dt><dd>${esc(o.reason)}</dd>
+    </dl>
+    <table><thead><tr><th>ordering</th><th class="num">head disproven</th>
+      <th>status</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return panel(5, 'Orchestration',
+               o.switched ? `switched to ${esc(o.ordering)}` : 'held', body,
+               true);
+}
+
 /* 5 ------------------------------------------------------------- retrieval */
 
 function retrievalPanel(r) {
@@ -355,7 +394,7 @@ function retrievalPanel(r) {
         || '<span class="muted">no query text yet</span>'}</div>
       <div class="muted" style="font-size:11px;margin-top:4px">struck through = the index has never seen this word, so it scores nothing</div>
     </div>`;
-  return panel(5, 'Retrieval', `${comma(z.catalog || 0)} → ${comma(z.pool || 0)}`, body, true);
+  return panel(6, 'Retrieval', `${comma(z.catalog || 0)} → ${comma(z.pool || 0)}`, body, true);
 }
 
 /* 6 --------------------------------------------------------------- ranking */
@@ -420,7 +459,7 @@ function rankingPanel(r, t) {
       the prior is immune to rewording and BM25 is immune to a change in which
       products get bought, so neither alone is a safety net.
     </div>`;
-  return panel(6, 'Ranking', `alpha ${r.alpha} · ${slots.length} slots`, body, true);
+  return panel(7, 'Ranking', `alpha ${r.alpha} · ${slots.length} slots`, body, true);
 }
 
 /* 7 ----------------------------------------------------------- slate shape */
@@ -452,7 +491,7 @@ function shapePanel(r, t) {
       ${dropped.slice(0, 6).map((d) => `<div class="prod"><div class="slot muted">${d.rank + 1}</div>
         <div class="main"><div class="ttl muted">${esc(card(d.asin).title)}</div></div></div>`).join('')}
       <div class="muted" style="font-size:11px;margin-top:4px">a slot spent on one of these is spent on a product the session already declined by not ending</div></div>` : ''}`;
-  return panel(7, 'Slate shape', `head ${head} · ${Math.max((r.slots || []).length - head, 0)} exploring`, body);
+  return panel(8, 'Slate shape', `head ${head} · ${Math.max((r.slots || []).length - head, 0)} exploring`, body);
 }
 
 /* 8 ---------------------------------------------------------------- rerank */
@@ -460,7 +499,7 @@ function shapePanel(r, t) {
 function rerankPanel(r) {
   const k = r.rerank || {};
   if (!k.phrases) {
-    return panel(8, 'Phrase rerank', 'inactive', `<div class="muted">
+    return panel(9, 'Phrase rerank', 'inactive', `<div class="muted">
       No constraint the customer has stated matches a whole phrase the catalog
       knows, so the blend's order stands untouched.</div>`);
   }
@@ -478,7 +517,7 @@ function rerankPanel(r) {
       coverage.</div>
     <table><thead><tr><th>product</th><th>slot</th><th>moved</th><th>evidence</th></tr></thead>
     <tbody>${moves || '<tr><td class="muted" colspan="4">evidence found, but it changed no order</td></tr>'}</tbody></table>`;
-  return panel(8, 'Phrase rerank', k.active ? `${k.phrases} phrase(s), order changed` : `${k.phrases} phrase(s), order held`, body);
+  return panel(9, 'Phrase rerank', k.active ? `${k.phrases} phrase(s), order changed` : `${k.phrases} phrase(s), order held`, body);
 }
 
 /* 9 ----------------------------------------------------------------- probe */
@@ -514,7 +553,7 @@ function probePanel(e) {
     </div>
     <table><thead><tr><th>arm</th><th>coverage</th><th>spread</th><th>heard</th><th></th><th>score</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
-  return panel(9, 'Clarifying question', p.asked ? esc(p.asked) : 'silent', body, true);
+  return panel(10, 'Clarifying question', p.asked ? esc(p.asked) : 'silent', body, true);
 }
 
 /* 10 ------------------------------------------------------------- response */
@@ -531,5 +570,5 @@ function messagePanel(e) {
       never reads this prose, only the attribute enum beside it. It is built
       anyway because the transcript is what a human judge reads.
     </div>`;
-  return panel(10, 'Response', 'composed from state', body);
+  return panel(11, 'Response', 'composed from state', body);
 }
