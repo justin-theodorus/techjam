@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 from submission.src import bm25
 from submission.src import category as category_module
+from submission.src import dense as dense_module
 from submission.src import phrases as phrases_module
 from submission.src import slots as slots_module
 from submission.src import text
@@ -44,6 +46,15 @@ def coarse_category(values: list[str]) -> str:
     return " ".join(cleaned[-2:]) if cleaned else FALLBACK_CATEGORY
 
 
+# How many of a listing's own lines count as what it leads with, and how fast a
+# line's weight falls off with its position. Both feed `probe` only.
+LEAD_LINES = 8
+LEAD_LENGTH = 180
+POSITION_DECAY = 0.35
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
 @dataclass(frozen=True)
 class Catalog:
     """The frozen catalog: identifiers, priors, buckets, and the BM25 index."""
@@ -59,6 +70,22 @@ class Catalog:
     phrases: phrases_module.PhraseIndex
     resolver: category_module.Resolver
     taxonomy: slots_module.Taxonomy
+    dense: dense_module.DenseIndex | None
+
+    # What each product leads with, as `(attribute, value_id, weight)` per
+    # line, and the ids the weights are keyed on. Read only by `probe`, to
+    # judge what a question is expected to be worth against the pool actually
+    # in contention (findings 3.37). Value strings are interned to ids because
+    # 50,000 products' bullets held as strings is resident memory the scored
+    # path never reads back.
+    offers: tuple[tuple[tuple[str, int, float], ...], ...] = ()
+    offer_ids: dict[str, int] | None = None
+
+    # The indexed text itself, retained only when Tier 2 asked for it at
+    # construction. Every other stage reads an index rather than the words, so
+    # 50,000 product descriptions are dead weight on the scored path and the
+    # one thing a prompt cannot do without.
+    cards: tuple[str, ...] | None = None
 
     def bucket(self, key: str | None) -> tuple[int, ...]:
         """Returns the pool for one bucket key, popularity-ordered.
@@ -108,9 +135,17 @@ class Catalog:
         return [self.asins[index] for index in indices]
 
 
-def build(catalog_path: str | Path) -> Catalog:
-    """Reads the catalog once and returns everything ranking needs."""
+def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
+    """Reads the catalog once and returns everything ranking needs.
+
+    Args:
+        catalog_path: The frozen catalog.
+        cards: Whether to keep each product's indexed text. Only the model
+          reranker reads it, so the default leaves resident memory where the
+          reported numbers measured it.
+    """
     asins: list[str] = []
+    documents: list[str] = []
     prior: list[float] = []
     bucket_members: dict[str, list[int]] = {}
     pad_members: dict[str, list[int]] = {}
@@ -118,6 +153,7 @@ def build(catalog_path: str | Path) -> Catalog:
     builder = bm25.Bm25Builder()
     phrase_builder = phrases_module.PhraseBuilder()
     taxonomy_builder = slots_module.TaxonomyBuilder()
+    leads: list[list[str]] = []
 
     with Path(catalog_path).open(encoding="utf-8") as handle:
         for line in handle:
@@ -127,11 +163,15 @@ def build(catalog_path: str | Path) -> Catalog:
             asins.append(str(product["parent_asin"]))
             prior.append(_prior(product))
             document = _document_text(product)
+            if cards:
+                documents.append(document)
             builder.add(text.tokens(document))
             phrase_builder.add(phrases_module.candidates(product, document))
             taxonomy_builder.add(
                 product.get("details"), bool(product.get("features"))
             )
+
+            leads.append(_lead_lines(product))
 
             index = len(asins) - 1
             cleaned = category_parts(product.get("categories") or [])
@@ -145,6 +185,9 @@ def build(catalog_path: str | Path) -> Catalog:
 
     def by_popularity(index: int) -> float:
         return -prior[index]
+
+    taxonomy = taxonomy_builder.freeze()
+    offers, offer_ids = _offers(leads, taxonomy)
 
     return Catalog(
         asins=tuple(asins),
@@ -165,8 +208,67 @@ def build(catalog_path: str | Path) -> Catalog:
         index=builder.freeze(),
         phrases=phrase_builder.freeze(),
         resolver=category_module.build(tuple(bucket_members)),
-        taxonomy=taxonomy_builder.freeze(),
+        taxonomy=taxonomy,
+        dense=_dense(asins),
+        cards=tuple(documents) if cards else None,
+        offers=offers,
+        offer_ids=offer_ids,
     )
+
+
+def _lead_lines(product: dict) -> list[str]:
+    """Returns the opening lines of one product's own description.
+
+    Bullets first, then `details` pairs, cleaned but not typed. A listing puts
+    what matters first and pads afterwards, which is the whole reason position
+    is worth recording: without it every product's declared size reads as
+    something a shopper leads with, and the probe asks about size twenty times
+    more often than customers mention it (findings 3.38).
+    """
+    lines = [str(value) for value in (product.get("features") or [])]
+    details = product.get("details")
+    if isinstance(details, dict):
+        lines.extend(f"{key}: {value}" for key, value in details.items())
+    cleaned = []
+    for line in lines[:LEAD_LINES]:
+        stripped = _WHITESPACE_RE.sub(" ", line).strip(" -;,.")[:LEAD_LENGTH]
+        if stripped:
+            cleaned.append(stripped)
+    return cleaned
+
+
+def _offers(
+    leads: list[list[str]], taxonomy: slots_module.Taxonomy
+) -> tuple[tuple[tuple[tuple[str, int, float], ...], ...], dict[str, int]]:
+    """Types every product's lead lines and weights them by position."""
+    ids: dict[str, int] = {}
+    built = []
+    for lines in leads:
+        rows = []
+        for rank, line in enumerate(lines):
+            folded = line.casefold()
+            value_id = ids.setdefault(folded, len(ids))
+            rows.append(
+                (taxonomy.classify_text(line), value_id,
+                 POSITION_DECAY ** rank)
+            )
+        built.append(tuple(rows))
+    return tuple(built), ids
+
+
+def _dense(asins: list[str]) -> dense_module.DenseIndex | None:
+    """Returns the bundled dense index, or `None` if it does not apply here.
+
+    Document rows in the asset are catalog line numbers, so an asset built
+    against a different catalog would score the wrong products under the
+    right names without raising. The fingerprint check is what makes a
+    mismatch a switched-off tier instead of a silent, unreadable regression,
+    and it is why a test fixture catalog gets `None` rather than nonsense.
+    """
+    index = dense_module.load()
+    if index is None or not index.matches(asins):
+        return None
+    return index
 
 
 def _document_text(product: dict) -> str:
