@@ -7,6 +7,7 @@ from pathlib import Path
 from submission.src import catalog as catalog_module
 from submission.src import dialogue
 from submission.src import llm
+from submission.src import policy as policy_module
 from submission.src import probe
 from submission.src import ranking
 from submission.src import response
@@ -46,6 +47,7 @@ class Agent:
         self._contenders = 0
         self._head = 0
         self._asked: str | None = None
+        self._policy = policy_module.DISCOVERY
         self._profile_ids: frozenset[int] = frozenset()
         self._scores: tuple[float, ...] = ()
         self._usage = llm.no_usage()
@@ -69,6 +71,7 @@ class Agent:
         self._contenders = 0
         self._head = 0
         self._asked = None
+        self._policy = policy_module.DISCOVERY
         self._usage = llm.no_usage()
         self.debug = {}
 
@@ -79,11 +82,14 @@ class Agent:
         try:
             recommendations = self._serve(session_id, user_message, top_k)
             asked = probe.choose(
-                self._state, self.catalog.taxonomy, self.catalog
+                self._state, self.catalog.taxonomy, self.catalog,
+                self._policy,
             )
             message = response.compose(
                 self._state, self._parsed, self._contenders,
                 self._head, len(recommendations), asked,
+                self._policy,
+                probe.options(self._state, self.catalog, asked),
             )
         except Exception as error:
             # Deliberate isolation point. A caller that turns an exception into
@@ -92,6 +98,7 @@ class Agent:
             # too: a non-string discards the recommendations with it.
             recommendations = self._degrade(error)
             asked = probe.WILDCARD
+            self._policy = policy_module.DISCOVERY
             message = response.FALLBACK
             self._scores = (0.0,) * len(recommendations)
         self._usage = self._take_usage()
@@ -166,7 +173,8 @@ class Agent:
         if isinstance(top_k, int) and top_k > 0:
             size = top_k
 
-        route = routing.choose(state)
+        policy = policy_module.select(state)
+        route = routing.choose(state, policy)
         served = ranking.slate(
             self.catalog, state, size,
             alpha=route.alpha,
@@ -183,6 +191,7 @@ class Agent:
         self._contenders = served.contenders
         self._head = served.head
         self._scores = tuple(served.scores)
+        self._policy = policy
         self._record(state, parsed, route, served, asins)
         return asins
 
@@ -249,6 +258,7 @@ class Agent:
         """
         self.debug = {
             "scenario": state.scenario,
+            "policy": self._policy,
             "route": route.name,
             "act": parsed.act,
             "read": round(parsed.confidence, 2),
@@ -266,6 +276,8 @@ class Agent:
             "head": served.head,
             "contenders": served.contenders,
             "refused": state.excluded_text or "-",
+            "declined": "/".join(state.declined) or "-",
+            "idle": state.idle,
             "shown": len(state.shown),
             "alpha": route.alpha,
             "dense": self._dense_of(route),

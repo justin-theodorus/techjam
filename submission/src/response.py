@@ -16,6 +16,8 @@ customer can catch the agent misunderstanding them.
 from __future__ import annotations
 
 from submission.src import dialogue
+from submission.src import policy as policy_module
+from submission.src import probe as probe_module
 
 # Reading a long constraint back verbatim is worse than not reading it back.
 MAX_QUOTED = 42
@@ -27,6 +29,36 @@ CROWDED = 5
 
 FALLBACK = "Here are some options. Anything specific you need?"
 
+# What each attribute is called when a question names it. The probe's arm names
+# are catalog vocabulary; these are what a shopper would say.
+LABELS = {
+    "material": "material",
+    "color": "colour",
+    "size": "size",
+    "style": "style",
+    "use_case": "occasion",
+    "feature": "feature",
+    "budget": "budget",
+    "brand": "brand",
+    "category": "kind",
+}
+
+# The open question each attribute asks when no alternatives are worth
+# offering. A shopper who cannot name an attribute can still answer these.
+STEMS = {
+    "material": "What should it be made of",
+    "color": "What colour are you after",
+    "size": "What size do you need",
+    "style": "What style are you after",
+    "use_case": "Where will you mainly use it",
+    "feature": "Which features matter to you",
+    "budget": "What budget are you working with",
+    "brand": "Any brand in mind",
+    "category": "What kind are you looking for",
+}
+
+OPEN_QUESTION = "Is there anything specific you need from it"
+
 
 def compose(
     state: dialogue.SessionState,
@@ -35,8 +67,16 @@ def compose(
     head: int,
     served: int,
     asked: str | None,
+    policy: str = policy_module.DISCOVERY,
+    options: tuple[str, ...] = (),
 ) -> str:
     """Returns the customer-facing reply for the turn just served.
+
+    The wording is the one decision in the turn the simulator cannot read:
+    `evaluator/local_evaluator.py:243` type-checks this field and never parses
+    it, and `customer_reply()` branches on the `ask_attribute` enum alone. So
+    nothing here can move the score in either direction, and everything here is
+    what a person reading the transcript actually sees (findings 3.46).
 
     Args:
         state: The session after this turn's message was folded in.
@@ -45,11 +85,14 @@ def compose(
         head: How many of the recommendations the ranking is committing to.
         served: How many recommendations the slate carries.
         asked: The attribute being probed, or None if nothing is.
+        policy: This turn's dialogue policy, which decides the framing.
+        options: Values of `asked` the live pool actually offers, if any are
+          worth putting to the customer.
     """
     parts = [
         _acknowledge(state, parsed),
         _slate(contenders, head, served),
-        _question(state, asked),
+        _question(state, parsed, asked, policy, options),
     ]
     reply = " ".join(part for part in parts if part)
     return reply or FALLBACK
@@ -69,9 +112,19 @@ def _acknowledge(
         return "Understood, starting over on that."
 
     if parsed.boundary_refusal:
+        # Naming the attribute rather than gesturing at it. `_question` sees
+        # that this fired and does not say it twice.
+        if state.declined:
+            return f"No problem, {_label(state.declined[-1])} can stay open."
         return "No problem, I will use my judgement there."
 
     if parsed.exhausted:
+        # A scoped exhaustion retires one attribute, not the session, and
+        # saying otherwise while still asking questions reads as not listening
+        # (`dialogue.SCOPED_EXHAUSTION`).
+        if not state.exhausted and parsed.exhausted_arm:
+            arm = _label(parsed.exhausted_arm)
+            return f"Understood, no strong view on {arm}."
         return "Thanks, I think I have what I need."
 
     if parsed.constraints:
@@ -102,13 +155,98 @@ def _slate(contenders: int, head: int, served: int) -> str:
     return f"Here is my best match, with {served - head} more to compare."
 
 
-def _question(state: dialogue.SessionState, asked: str | None) -> str:
-    """Returns the clarifying question, or a closing line when none helps."""
+def _question(
+    state: dialogue.SessionState,
+    parsed: dialogue.ParsedTurn,
+    asked: str | None,
+    policy: str = policy_module.DISCOVERY,
+    options: tuple[str, ...] = (),
+) -> str:
+    """Returns the clarifying question, framed the way the policy asks for.
+
+    One question, one attribute, every time. The framing changes because the
+    same question does different work depending on where the conversation is:
+    a customer who has said nothing needs a scenario they can recognise, one
+    who has just been specific needs a direct follow-up, and one who has
+    answered two questions with nothing needs a different kind of question
+    rather than a sharper version of the same one.
+    """
     if asked is None:
+        if policy == policy_module.COVERAGE:
+            return ("Based on everything you have told me, these are the "
+                    "strongest matches you have not seen yet.")
         return "Let me know if none of these are right."
+
+    if asked == probe_module.WILDCARD:
+        return _closed(_wildcard_stem(state, policy))
+
+    listed = _choices(options)
+    if policy == policy_module.STAGNATION:
+        if listed:
+            return _closed(f"Let us try another angle. Which matters more: "
+                           f"{listed}")
+        return _closed(f"Let us try another angle. {_stem(asked)}")
+
+    if policy == policy_module.BOUNDARY:
+        opening = "" if parsed.boundary_refusal else _released(state)
+        if listed:
+            return _closed(f"{opening}Would {listed} suit you better")
+        return _closed(f"{opening}{_stem(asked)}")
+
+    if policy == policy_module.PRECISION:
+        if listed:
+            return _closed(f"Do you need {listed}")
+        return _closed(f"Do you have a preferred {_label(asked)}")
+
+    if listed:
+        return _closed(f"{_stem(asked)}: {listed}")
+    return _closed(_stem(asked))
+
+
+def _wildcard_stem(state: dialogue.SessionState, policy: str) -> str:
+    """Returns the phrasing for a question that names no attribute."""
+    if policy == policy_module.STAGNATION:
+        return "Let us try another angle. What matters most to you here"
     if state.constraints:
-        return "Is there another detail I should match on?"
-    return "Is there anything specific you need from it?"
+        return "Is there another detail I should match on"
+    return OPEN_QUESTION
+
+
+def _released(state: dialogue.SessionState) -> str:
+    """Returns the clause that tells the customer a refusal was heard.
+
+    Naming the attribute they declined is the point: it is the difference
+    between moving on and appearing to have ignored them.
+    """
+    if not state.declined:
+        return ""
+    return f"No problem, {_label(state.declined[-1])} can stay open. "
+
+
+def _choices(options: tuple[str, ...]) -> str:
+    """Returns the offered alternatives as a readable list."""
+    quoted = [_short(value) for value in options]
+    quoted = [value for value in quoted if value]
+    if len(quoted) < 2:
+        return ""
+    if len(quoted) == 2:
+        return f"{quoted[0]} or {quoted[1]}"
+    return f"{', '.join(quoted[:-1])}, or {quoted[-1]}"
+
+
+def _label(attribute: str) -> str:
+    """Returns what a shopper would call this attribute."""
+    return LABELS.get(attribute, attribute.replace("_", " "))
+
+
+def _stem(attribute: str) -> str:
+    """Returns the open question this attribute asks."""
+    return STEMS.get(attribute, f"What {_label(attribute)} do you need")
+
+
+def _closed(question: str) -> str:
+    """Returns a question stem punctuated as one."""
+    return f"{question.rstrip('?').rstrip()}?"
 
 
 def _distinct(
