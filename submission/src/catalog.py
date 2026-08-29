@@ -80,6 +80,10 @@ class Catalog:
     # path never reads back.
     offers: tuple[tuple[tuple[str, int, float], ...], ...] = ()
     offer_ids: dict[str, int] | None = None
+    # The interned strings themselves, indexed by value id, so a question can
+    # offer the customer values that exist in the pool in front of them rather
+    # than a hardcoded list. Read only by `probe.options`.
+    offer_text: tuple[str, ...] = ()
 
     # The indexed text itself, retained only when Tier 2 asked for it at
     # construction. Every other stage reads an index rather than the words, so
@@ -188,6 +192,7 @@ def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
 
     taxonomy = taxonomy_builder.freeze()
     offers, offer_ids = _offers(leads, taxonomy)
+    offer_text = tuple(offer_ids)
 
     return Catalog(
         asins=tuple(asins),
@@ -213,6 +218,7 @@ def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
         cards=tuple(documents) if cards else None,
         offers=offers,
         offer_ids=offer_ids,
+        offer_text=offer_text,
     )
 
 

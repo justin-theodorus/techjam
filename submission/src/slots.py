@@ -122,6 +122,18 @@ _TOKEN_STOPWORDS = frozenset(
 )
 
 
+def value_of(line: str) -> str:
+    """Returns the value half of a `Key: value` line, or the whole line.
+
+    Products state attributes both ways -- `details` arrives as pairs and
+    `features` arrives as bare bullets -- and a question offering the customer
+    "fabric type: cotton" as a choice reads like a database dump. Only the
+    payload is worth reading aloud.
+    """
+    match = _KEY_RE.match(line)
+    return (match.group(2) if match else line).strip(" -;,.")
+
+
 def polarity(value: str) -> tuple[bool, str]:
     """Returns whether a constraint refuses something, and its text without
     the cue.
@@ -205,6 +217,17 @@ class Taxonomy:
         if learned:
             return learned
         return DEFAULT
+
+    def vocabulary(self, value: str) -> str | None:
+        """Returns the attribute this catalog teaches for a bare value.
+
+        `classify` answers "what is this constraint about", falling back to the
+        majority class when nothing is known. This answers the stricter
+        question "does the catalog actually use this word for this attribute",
+        and `None` is a real answer: it is what keeps a question from offering
+        a shopper a packing dimension as a choice of size.
+        """
+        return self._values.get(value.strip().casefold())
 
     def classify_text(self, value: str) -> str:
         """Types free text by the vocabulary its individual words land in.

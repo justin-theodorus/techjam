@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from submission.src import catalog as catalog_module
 from submission.src import dialogue
+from submission.src import policy as policy_module
 from submission.src import probe
 from submission.src.tests import fixtures
 from submission.src import slots
@@ -242,3 +244,178 @@ def _lines_typed(catalog, arm: str) -> tuple[str, ...]:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _offer_row(asin: str, material: str, ratings: int) -> dict:
+    """One product whose `details` teach `material` as material vocabulary."""
+    return {
+        "parent_asin": asin,
+        "title": f"{material} bag",
+        "features": [f"{material} construction"],
+        "description": ["never indexed"],
+        "categories": ["Clothing, Shoes & Jewelry", "Bags", "Bags, Totes"],
+        "details": {"Material": material, "Package Dimensions": "9 x 4 x 2"},
+        "store": "Example",
+        "price": None,
+        "average_rating": 4.5,
+        "rating_number": ratings,
+    }
+
+
+class GroundedOptionsTest(unittest.TestCase):
+    """The alternatives a question offers come from the pool, not a list.
+
+    A written list of materials is a guess about the catalog; these are the
+    values the products still in contention actually claim, which is what makes
+    every offered choice one that still narrows something.
+    """
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        path = self.root / "offers.jsonl"
+        rows = []
+        for index, material in enumerate(("leather", "canvas", "nylon")):
+            for copy in range(6):
+                rows.append(
+                    _offer_row(f"{material.upper()}_{copy}", material,
+                               1000 - index * 100 - copy)
+                )
+        path.write_text(
+            "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+        )
+        self.catalog = catalog_module.build(path)
+        self.state = dialogue.SessionState(
+            category="Bags Totes", buckets=("Bags Totes",), turn=1,
+        )
+
+    def test_the_options_are_values_the_pool_actually_claims(self) -> None:
+        offered = probe.options(self.state, self.catalog, slots.MATERIAL)
+
+        self.assertGreaterEqual(len(offered), probe.MIN_OPTIONS)
+        for value in offered:
+            self.assertIn(value, ("leather", "canvas", "nylon"))
+
+    def test_a_value_already_disclosed_is_not_offered_back(self) -> None:
+        state = replace(self.state, constraints=("leather",))
+
+        self.assertNotIn(
+            "leather", probe.options(state, self.catalog, slots.MATERIAL)
+        )
+
+    def test_a_dimension_the_catalog_never_teaches_offers_nothing(
+        self,
+    ) -> None:
+        """Parcel dimensions classify as size and are not size vocabulary.
+
+        Without the vocabulary check a question offers the customer a shipping
+        box as a choice of size (findings 3.38).
+        """
+        self.assertEqual(
+            probe.options(self.state, self.catalog, slots.SIZE), ()
+        )
+
+    def test_the_wildcard_offers_nothing(self) -> None:
+        self.assertEqual(
+            probe.options(self.state, self.catalog, probe.WILDCARD), ()
+        )
+
+    def test_at_most_the_cap_is_offered(self) -> None:
+        offered = probe.options(self.state, self.catalog, slots.MATERIAL)
+
+        self.assertLessEqual(len(offered), probe.MAX_OPTIONS)
+
+
+class StagnationEscapeTest(unittest.TestCase):
+    """Repeated empty answers force a different dimension, not a sharper one."""
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.catalog = catalog_module.build(fixtures.write_catalog(self.root))
+        self.state = dialogue.SessionState(
+            category=fixtures.SNEAKER_BUCKET,
+            buckets=(fixtures.SNEAKER_BUCKET,),
+            constraints=("cotton",),
+            slots=(slots.Slot(slots.MATERIAL, "cotton", 1),),
+            turn=3,
+        )
+
+    def test_the_escape_never_repeats_a_dimension_already_heard(self) -> None:
+        state = replace(self.state, idle=dialogue.STAGNATION_TURNS)
+        asked = probe.choose(
+            state, self.catalog.taxonomy, self.catalog,
+            policy_module.STAGNATION,
+        )
+
+        self.assertNotEqual(asked, slots.MATERIAL)
+
+    def test_the_switch_off_restores_the_unconstrained_choice(self) -> None:
+        state = replace(self.state, idle=dialogue.STAGNATION_TURNS)
+        original = probe.STAGNATION_ESCAPE
+        try:
+            probe.STAGNATION_ESCAPE = False
+            free = probe.choose(
+                state, self.catalog.taxonomy, self.catalog,
+                policy_module.STAGNATION,
+            )
+        finally:
+            probe.STAGNATION_ESCAPE = original
+        escaped = probe.choose(
+            state, self.catalog.taxonomy, self.catalog,
+            policy_module.STAGNATION,
+        )
+
+        self.assertEqual(
+            free,
+            probe.choose(state, self.catalog.taxonomy, self.catalog,
+                         policy_module.PRECISION),
+        )
+        self.assertIsNotNone(escaped)
+
+    def test_no_other_policy_narrows_the_arms(self) -> None:
+        for policy in (policy_module.DISCOVERY, policy_module.PRECISION,
+                       policy_module.BOUNDARY, policy_module.RECOVERY):
+            with self.subTest(policy=policy):
+                self.assertEqual(
+                    probe.choose(self.state, self.catalog.taxonomy,
+                                 self.catalog, policy),
+                    probe.choose(self.state, self.catalog.taxonomy,
+                                 self.catalog, policy_module.PRECISION),
+                )
+
+
+class CoverageSilenceTest(unittest.TestCase):
+    """The final turn asks nothing, because no turn is left to spend it in."""
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.catalog = catalog_module.build(fixtures.write_catalog(self.root))
+        self.state = dialogue.SessionState(
+            category=fixtures.SNEAKER_BUCKET,
+            buckets=(fixtures.SNEAKER_BUCKET,),
+            turn=probe.FINAL_TURN,
+        )
+
+    def test_the_last_turn_asks_nothing(self) -> None:
+        self.assertIsNone(
+            probe.choose(self.state, self.catalog.taxonomy, self.catalog)
+        )
+
+    def test_the_turn_before_still_asks(self) -> None:
+        state = replace(self.state, turn=probe.FINAL_TURN - 1)
+
+        self.assertIsNotNone(
+            probe.choose(state, self.catalog.taxonomy, self.catalog)
+        )
+
+    def test_the_switch_off_keeps_asking_to_the_end(self) -> None:
+        original = probe.COVERAGE_SILENCE
+        try:
+            probe.COVERAGE_SILENCE = False
+            self.assertIsNotNone(
+                probe.choose(self.state, self.catalog.taxonomy, self.catalog)
+            )
+        finally:
+            probe.COVERAGE_SILENCE = original
