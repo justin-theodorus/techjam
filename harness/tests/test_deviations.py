@@ -100,6 +100,9 @@ class SweepTableTest(unittest.TestCase):
             "routing.DISCOVERY_DIVERSITY": None,
             "ranking.DIVERSITY_MAX_CONSTRAINTS": -1,
             "ranking.FLATNESS_GATE": 0.0,
+            # Ships off, so its sweep reads backwards: the deviation is the
+            # old behaviour of filling the withheld slots from ranks 11-19.
+            "ranking.EXPLORE_FILL": False,
             "ranking.EXPLORE_DIVERSITY": 0.95,
             "ranking.EXPLORE_SORT": True,
             "ranking.CONVERGE_AT": 0,

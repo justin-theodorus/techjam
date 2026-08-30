@@ -127,6 +127,12 @@ DEVIATIONS = (
         ),
     ),
     Deviation(
+        "explore_fill",
+        "ranking.EXPLORE_FILL",
+        "False (live): the head is served alone and the withheld slots stay empty",
+        (("on", {"ranking.EXPLORE_FILL": True}),),
+    ),
+    Deviation(
         "explore_band",
         "ranking.EXPLORE_DIVERSITY / ranking.EXPLORE_SORT",
         "0.95 sorted (live); 0.0 restores compose's fixed ranks 11-19",
