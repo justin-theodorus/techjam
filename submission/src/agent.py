@@ -9,6 +9,7 @@ from submission.src import catalog as catalog_module
 from submission.src import dialogue
 from submission.src import llm
 from submission.src import memory
+from submission.src import orchestrate
 from submission.src import outcome_tracker
 from submission.src import policy as policy_module
 from submission.src import probe
@@ -55,6 +56,7 @@ class Agent:
         self._head = 0
         self._asked: str | None = None
         self._policy = policy_module.DISCOVERY
+        self._workflow = orchestrate.shipped(policy_module.DISCOVERY)
         self._profile_ids: frozenset[int] = frozenset()
         self._user_profile: dict = {}
         self._scores: tuple[float, ...] = ()
@@ -88,6 +90,7 @@ class Agent:
         self._head = 0
         self._asked = None
         self._policy = policy_module.DISCOVERY
+        self._workflow = orchestrate.shipped(policy_module.DISCOVERY)
         self._usage = llm.no_usage()
         self.debug = {}
         self._conversation_history = []
@@ -264,6 +267,7 @@ class Agent:
         )
         policy = decision.name
         route = routing.choose(state, policy, decision=decision)
+        workflow = orchestrate.choose(self.catalog, state, policy, route.alpha)
         served = ranking.slate(
             self.catalog, state, size,
             alpha=route.alpha,
@@ -273,6 +277,7 @@ class Agent:
             reach=route.reach,
             reranker=self._reranker,
             diversity=route.diversity,
+            ordering=workflow.ordering,
         )
         asins = tuple(self.catalog.slate_of(served.indices))
         self._state = state.with_slate(asins)
@@ -282,6 +287,7 @@ class Agent:
         self._head = served.head
         self._scores = tuple(served.scores)
         self._policy = policy
+        self._workflow = workflow
         self._record(state, parsed, route, served, asins)
         return asins
 
@@ -404,6 +410,9 @@ class Agent:
             "variety": self._diversity_of(route),
             "policy_conf": route.policy_confidence,
             "policy_margin": route.policy_margin,
+            "ordering": self._workflow.ordering,
+            "switched": self._workflow.reason,
+            "refuted": orchestrate.refuted(state),
             "top1": asins[0] if asins else "-",
         }
         for name, score in route.policy_scores:

@@ -47,6 +47,10 @@ MIN_PRECISION_CONSTRAINTS = 2
 # (findings 3.46).
 COVERAGE_TURN = 8
 
+# How many turns after a pivot recovery stays sticky. `0` means the redirect
+# owns the rest of the session, which is the shipped setting from `main`.
+RECOVERY_TURNS = 0
+
 # Policy scores are deliberately small, additive signals rather than calibrated
 # probabilities. They answer "which controller should speak next?" from the
 # evidence the session already exposes: constraints, true declines, pivots,
@@ -138,7 +142,7 @@ def decide(
 
 def _recovery_score(state: dialogue.SessionState) -> float:
     score = 0.0
-    if state.pivoted or state.scenario == dialogue.OVERRIDE:
+    if state.pivoted and _recovering(state):
         score += 6.0
     if state.pivot_turn == state.turn and state.turn:
         score += 0.4
@@ -155,7 +159,7 @@ def _coverage_score(state: dialogue.SessionState) -> float:
         score += 5.0 + min(0.4, _constraint_count(state) * 0.1)
     if len(state.shown) >= 30:
         score += 0.2
-    if state.pivoted:
+    if state.pivoted and _recovering(state):
         score -= 6.0
     return score
 
@@ -178,7 +182,9 @@ def _stagnation_score(
         score += 0.25
     if constraints >= MIN_PRECISION_CONSTRAINTS:
         score -= 0.8
-    if state.pivoted or state.exhausted:
+    if state.pivoted and _recovering(state):
+        score -= 4.0
+    if state.exhausted:
         score -= 4.0
     return score
 
@@ -213,7 +219,9 @@ def _precision_score(
         score += 0.25
     if state.declined:
         score -= 0.4
-    if state.pivoted or state.exhausted:
+    if state.pivoted and _recovering(state):
+        score -= 2.0
+    if state.exhausted:
         score -= 2.0
     return score
 
@@ -241,7 +249,9 @@ def _discovery_score(
         score -= 0.6
     if state.declined:
         score -= 0.55
-    if state.pivoted or state.exhausted:
+    if state.pivoted and _recovering(state):
+        score -= 1.0
+    if state.exhausted:
         score -= 1.0
     return score
 
@@ -259,3 +269,10 @@ def _hard_attribute_count(state: dialogue.SessionState) -> int:
         slot.attribute for slot in state.slots
         if not slot.negated and slot.attribute in _HARD_ATTRIBUTES
     })
+
+
+def _recovering(state: dialogue.SessionState) -> bool:
+    """Whether the current turn is still inside the redirect recovery window."""
+    if RECOVERY_TURNS <= 0:
+        return True
+    return state.turn - state.pivot_turn < RECOVERY_TURNS

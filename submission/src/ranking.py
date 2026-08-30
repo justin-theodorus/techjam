@@ -207,6 +207,17 @@ FULL_DISCLOSURE = 4
 # session that also never reaches four constraints would narrow forever.
 MAX_DEFER_TURNS = 3
 
+# The named orderings a route may serve from. `BLEND` is the shipped one and
+# every reported number is taken on it; the rest exist so that a session whose
+# blend head has been served and disproven has somewhere to switch to. See
+# `submission/src/orchestrate.py` for what decides, and findings 3.50 for what
+# each one is worth.
+BLEND = "blend"
+LEXICAL = "lexical"
+PRIOR = "prior"
+PHRASE = "phrase"
+ORDERINGS = (BLEND, LEXICAL, PRIOR, PHRASE)
+
 
 @dataclass(frozen=True)
 class Served:
@@ -229,6 +240,7 @@ def slate(
     reach: int = 0,
     diversity: float | None = None,
     reranker: Reranker | None = None,
+    ordering: str = BLEND,
 ) -> Served:
     """Filters to the resolved buckets, ranks inside them, then pads to `size`.
 
@@ -254,10 +266,13 @@ def slate(
         catalog, state.excluded_text, DENSE_NEGATION_WEIGHT > 0.0
     )
     pool = widen(catalog, state, dense_query, reach)
-    ordered, scores = ranked(
-        catalog, pool, query_ids, alpha, personalised(state, profile_ids),
-        negative_ids, dense_query, dense_negative, dense_weight,
-    )
+    if ordering == BLEND:
+        ordered, scores = ranked(
+            catalog, pool, query_ids, alpha, personalised(state, profile_ids),
+            negative_ids, dense_query, dense_negative, dense_weight,
+        )
+    else:
+        ordered, scores = alternative(ordering, catalog, pool, state, alpha)
     contenders = contention(scores)
     ordered, scores = unseen(catalog, ordered, scores, state.shown, size)
     head = head_size(state, size, defer_turns, contenders)
@@ -419,6 +434,66 @@ def ranked(
     # prior, so a query that matches nothing still ranks sensibly.
     positions = sorted(range(len(pool)), key=lambda i: -blended[i])
     return [pool[p] for p in positions], [blended[p] for p in positions]
+
+
+def alternative(
+    name: str,
+    catalog: catalog_module.Catalog,
+    pool: tuple[int, ...],
+    state: dialogue.SessionState,
+    alpha: float = ALPHA,
+) -> tuple[list[int], list[float]]:
+    """Returns `pool` under a named ordering other than the blend.
+
+    Each one drops a signal the blend leans on, so a session the blend has
+    already been proven wrong about is re-sorted by evidence it was not using.
+    Refusals stay in all of them: a refusal is something the customer said,
+    not a retrieval signal a route chooses between.
+    """
+    negative_ids = catalog.index.query_ids(
+        text.unique_tokens(state.excluded_text)
+    )
+    if name == PHRASE:
+        return phrase_ordered(catalog, pool, state)
+    if name == PRIOR:
+        return ranked(
+            catalog, pool, frozenset(), alpha, negative_ids=negative_ids
+        )
+    if name == LEXICAL:
+        query_ids = catalog.index.query_ids(
+            text.unique_tokens(state.query_text)
+        )
+        return ranked(
+            catalog, pool, query_ids, 0.0, negative_ids=negative_ids
+        )
+    raise ValueError(f"unknown ordering: {name}")
+
+
+def phrase_ordered(
+    catalog: catalog_module.Catalog,
+    pool: tuple[int, ...],
+    state: dialogue.SessionState,
+) -> tuple[list[int], list[float]]:
+    """Orders `pool` by rare whole-phrase evidence alone.
+
+    `rerank` applies the same evidence to the served ten, where it can only
+    permute what the blend already chose. Over the pool it can *reach* a
+    product no turn would otherwise serve, which is the only reason it exists.
+
+    Findings 3.1 measured this route as a session's *primary* retriever and it
+    lost roughly 40% of its hit rate under mild rewording. It is here as a
+    fallback instead, and with no phrase evidence it returns the pool as it
+    arrived, which is the popularity order: it degrades to the prior rather
+    than to noise, which is the difference 3.1 could not see.
+    """
+    phrase_ids = catalog.phrases.query_ids(state.constraints)
+    if not phrase_ids:
+        return list(pool), [0.0] * len(pool)
+    evidence = [
+        catalog.phrases.evidence(index, phrase_ids) for index in pool
+    ]
+    positions = sorted(range(len(pool)), key=lambda i: -evidence[i])
+    return [pool[p] for p in positions], [evidence[p] for p in positions]
 
 
 def order(

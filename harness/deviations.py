@@ -52,6 +52,7 @@ from harness import sessions
 MODULES = {
     "dialogue": "submission.src.dialogue",
     "memory": "submission.src.memory",
+    "orchestrate": "submission.src.orchestrate",
     "policy": "submission.src.policy",
     "probe": "submission.src.probe",
     "ranking": "submission.src.ranking",
@@ -252,6 +253,47 @@ DEVIATIONS = (
                 "routing.DISCOVERY_DENSE": 0.6,
                 "routing.DISCOVERY_REACH": 100,
             }),
+        ),
+    ),
+    # Phase 6Y. `orchestration` ships *on*, so its row reads backwards like
+    # `skip_shown` and `negation` do: a positive delta is a reason to switch it
+    # off. `orchestration_control` is the pair of controls that could have
+    # refuted the phase, plus the selection rule it replaced (findings 3.50,
+    # decision 31).
+    Deviation(
+        "orchestration",
+        "orchestrate.ENABLED / SPENT_RATIO / CANDIDATES",
+        "True at 0.5 over four candidates (shipped on)",
+        (
+            ("off", {"orchestrate.ENABLED": False}),
+            ("fire at 0.3", {"orchestrate.SPENT_RATIO": 0.3}),
+            ("fire at 0.7", {"orchestrate.SPENT_RATIO": 0.7}),
+            ("phrase only", {"orchestrate.CANDIDATES": ("blend", "phrase")}),
+            ("prior only", {"orchestrate.CANDIDATES": ("blend", "prior")}),
+            ("lexical only",
+             {"orchestrate.CANDIDATES": ("blend", "lexical")}),
+        ),
+    ),
+    Deviation(
+        "recovery_window",
+        "policy.RECOVERY_TURNS",
+        "0, meaning recovery holds for the rest of the session",
+        (
+            ("1 turn", {"policy.RECOVERY_TURNS": 1}),
+            ("2 turns", {"policy.RECOVERY_TURNS": 2}),
+            ("3 turns", {"policy.RECOVERY_TURNS": 3}),
+        ),
+    ),
+    Deviation(
+        "orchestration_control",
+        "orchestrate.SCHEDULE / orchestrate.BLIND / orchestrate.FRESHEST",
+        "off; the controller reads the refuted set",
+        (
+            ("schedule 2", {"orchestrate.SCHEDULE": 2}),
+            ("schedule 3", {"orchestrate.SCHEDULE": 3}),
+            ("schedule 5", {"orchestrate.SCHEDULE": 5}),
+            ("blind", {"orchestrate.BLIND": True}),
+            ("freshest", {"orchestrate.FRESHEST": True}),
         ),
     ),
     Deviation(
