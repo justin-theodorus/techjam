@@ -758,11 +758,46 @@ class ContentionTest(unittest.TestCase):
         self.assertEqual(ranking.CONVERGE_AT, 0)
 
     def test_the_switch_widens_the_slate_when_enabled(self) -> None:
+        """A gated-out turn falls through to the derived head, not to one."""
         state = dialogue.SessionState(turn=1)
         original = ranking.CONVERGE_AT
         try:
             ranking.CONVERGE_AT = 1
             self.assertEqual(ranking.head_size(state, 10, 3, 1), 10)
-            self.assertEqual(ranking.head_size(state, 10, 3, 5), 1)
+            self.assertEqual(ranking.head_size(state, 10, 3, 5), 5)
         finally:
             ranking.CONVERGE_AT = original
+
+    def test_the_head_is_derived_from_contention(self) -> None:
+        """Commit to what is still competing, and to one once it has decided."""
+        self.assertTrue(ranking.HEAD_FROM_CONTENTION)
+        state = dialogue.SessionState(turn=1)
+        for contenders, expected in ((1, 1), (2, 2), (4, 4), (20, 10)):
+            with self.subTest(contenders=contenders):
+                self.assertEqual(
+                    ranking.head_size(state, 10, 6, contenders), expected
+                )
+
+    def test_head_size_never_falls_below_the_floor(self) -> None:
+        """`contenders == 0` means the caller did not measure it."""
+        state = dialogue.SessionState(turn=1)
+        self.assertEqual(ranking.head_size(state, 10, 6, 0), ranking.HEAD_SIZE)
+
+    def test_the_margin_is_read_at_call_time(self) -> None:
+        """Bound as a default it was fixed at import, so no sweep could move it.
+
+        The same defect findings 3.27 caught in `slate`: every earlier sweep of
+        `CONTENTION_MARGIN` silently measured the shipped value.
+        """
+        scores = [1.0, 0.999, 0.99, 0.5]
+        original = ranking.CONTENTION_MARGIN
+        try:
+            ranking.CONTENTION_MARGIN = 0.0
+            tight = ranking.contention(scores)
+            ranking.CONTENTION_MARGIN = 0.05
+            loose = ranking.contention(scores)
+        finally:
+            ranking.CONTENTION_MARGIN = original
+        self.assertEqual(tight, 1)
+        self.assertEqual(loose, 3)
+        self.assertGreater(loose, tight)

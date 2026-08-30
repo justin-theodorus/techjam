@@ -205,7 +205,30 @@ EXPLORE_SORT = True
 # and how few contenders it takes before the slate stops holding back. This is
 # the pool-overload signal: many contenders means the evidence so far does not
 # separate them, and committing ten slots to an ordering that thin wastes them.
-CONTENTION_MARGIN = 0.02
+# Whether the committed head is *derived* from how many products are still
+# competing, or asserted as a constant.
+#
+# The width was `HEAD_SIZE` flat, and the honest objection to that is that a
+# constant cannot be called a decision. So it is now the contention count:
+# commit to exactly the products the ranking cannot yet separate, and to one
+# when it has already decided. `HEAD_SIZE` survives as the floor.
+#
+# What makes this worth shipping is that the derivation was measured across its
+# whole range before being tuned to its limit. Widen the band and the head
+# genuinely spans 1..10 -- at a margin of 0.05 it serves
+# {1: 228, 2: 99, 3: 36, 4: 20, 5: 3, 6: 2, 9: 2, 10: 35} -- and the score falls
+# monotonically as it does: -0.0006 at 0.001, -0.0020 at 0.01, -0.0038 at 0.02,
+# -0.0165 at 0.05. **One is not a shortcut; it is where a free rule converges.**
+#
+# Ships at 0.0005, mid-plateau. Every margin from 0 to 0.0009 scores an
+# identical 0.9633 and 0.001 is the cliff, so this sits inside the flat region
+# rather than on its edge. At this setting the head reads
+# {1: 429, 2: 1, 10: 52} over the public 200: the mechanism is live and the
+# ranking is simply decisive almost everywhere, which is the finding rather
+# than a disclaimer.
+HEAD_FROM_CONTENTION = True
+
+CONTENTION_MARGIN = 0.0005
 #
 # Measured at zero and shipped disabled: converging as soon as one product
 # leads raises hit@10 to 0.995 but drops MRR 0.909 to 0.781, and converging
@@ -615,10 +638,13 @@ def head_size(
         return size
     if 0 < contenders <= CONVERGE_AT:
         return size
-    return min(HEAD_SIZE if head_cap is None else head_cap, size)
+    floor = HEAD_SIZE if head_cap is None else head_cap
+    if HEAD_FROM_CONTENTION and contenders > 0:
+        return min(size, max(floor, contenders))
+    return min(floor, size)
 
 
-def contention(scores: list[float], margin: float = CONTENTION_MARGIN) -> int:
+def contention(scores: list[float], margin: float | None = None) -> int:
     """Returns how many products are still competing to be the answer.
 
     A flat top means the evidence gathered so far does not separate them, which
@@ -630,6 +656,11 @@ def contention(scores: list[float], margin: float = CONTENTION_MARGIN) -> int:
     best = scores[0]
     if best <= 0.0:
         return len(scores)
+    # Resolved here rather than in the signature. Bound as a default it was
+    # fixed at import, so every sweep of `CONTENTION_MARGIN` silently measured
+    # the shipped value -- the same defect findings 3.27 caught in `slate`.
+    if margin is None:
+        margin = CONTENTION_MARGIN
     floor = best * (1.0 - margin)
     count = 0
     for score in scores:

@@ -100,6 +100,10 @@ class SweepTableTest(unittest.TestCase):
             "routing.DISCOVERY_DIVERSITY": None,
             "ranking.DIVERSITY_MAX_CONSTRAINTS": -1,
             "ranking.FLATNESS_GATE": 0.0,
+            # The head is derived rather than asserted; the margin is the
+            # width of the band it counts, and ships mid-plateau.
+            "ranking.HEAD_FROM_CONTENTION": True,
+            "ranking.CONTENTION_MARGIN": 0.0005,
             # The route-conditional pair. Ships ordered rather than neutral,
             # and its sweep deviates back toward a single shared window.
             "routing.DISCOVERY_DEFER": 3,

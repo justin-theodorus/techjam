@@ -127,6 +127,18 @@ DEVIATIONS = (
         ),
     ),
     Deviation(
+        "head_contention",
+        "ranking.HEAD_FROM_CONTENTION / ranking.CONTENTION_MARGIN",
+        "True at 0.0005 (live): the head is the contention count, floor HEAD_SIZE",
+        (
+            ("asserted", {"ranking.HEAD_FROM_CONTENTION": False}),
+            ("m .001", {"ranking.CONTENTION_MARGIN": 0.001}),
+            ("m .01", {"ranking.CONTENTION_MARGIN": 0.01}),
+            ("m .02", {"ranking.CONTENTION_MARGIN": 0.02}),
+            ("m .05", {"ranking.CONTENTION_MARGIN": 0.05}),
+        ),
+    ),
+    Deviation(
         "route_defer",
         "routing.DISCOVERY_DEFER / routing.PRECISION_DEFER",
         "3 and 6 (live): discovery opens sooner than precision",
