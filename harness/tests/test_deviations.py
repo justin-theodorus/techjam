@@ -100,6 +100,11 @@ class SweepTableTest(unittest.TestCase):
             "routing.DISCOVERY_DIVERSITY": None,
             "ranking.DIVERSITY_MAX_CONSTRAINTS": -1,
             "ranking.FLATNESS_GATE": 0.0,
+            # The route-conditional pair. Ships ordered rather than neutral,
+            # and its sweep deviates back toward a single shared window.
+            "routing.DISCOVERY_DEFER": 3,
+            "routing.PRECISION_DEFER": 6,
+            "routing.DISCOVERY_HEAD": None,
             # Ships off, so its sweep reads backwards: the deviation is the
             # old behaviour of filling the withheld slots from ranks 11-19.
             "ranking.EXPLORE_FILL": False,

@@ -300,6 +300,7 @@ def slate(
     diversity: float | None = None,
     reranker: Reranker | None = None,
     ordering: str = BLEND,
+    head_cap: int | None = None,
 ) -> Served:
     """Filters to the resolved buckets, ranks inside them, then pads to `size`.
 
@@ -334,7 +335,7 @@ def slate(
         ordered, scores = alternative(ordering, catalog, pool, state, alpha)
     contenders = contention(scores)
     ordered, scores = unseen(catalog, ordered, scores, state.shown, size)
-    head = head_size(state, size, defer_turns, contenders)
+    head = head_size(state, size, defer_turns, contenders, head_cap)
     if diversity > 0.0 and worth_diversifying(state, scores, size):
         chosen = diversify(catalog, ordered, scores, head, size, diversity)
     else:
@@ -587,6 +588,7 @@ def head_size(
     size: int = SLATE_SIZE,
     defer_turns: int = MAX_DEFER_TURNS,
     contenders: int = 0,
+    head_cap: int | None = None,
 ) -> int:
     """Returns how many top-ranked documents to serve this turn.
 
@@ -613,7 +615,7 @@ def head_size(
         return size
     if 0 < contenders <= CONVERGE_AT:
         return size
-    return min(HEAD_SIZE, size)
+    return min(HEAD_SIZE if head_cap is None else head_cap, size)
 
 
 def contention(scores: list[float], margin: float = CONTENTION_MARGIN) -> int:

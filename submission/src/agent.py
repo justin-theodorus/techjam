@@ -290,6 +290,7 @@ class Agent:
             reranker=self._reranker,
             diversity=route.diversity,
             ordering=workflow.ordering,
+            head_cap=route.head_cap,
         )
         asins = tuple(self.catalog.slate_of(served.indices))
         self._state = state.with_slate(asins)

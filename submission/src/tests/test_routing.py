@@ -105,12 +105,16 @@ class PolicyScoringTest(unittest.TestCase):
 
 
 class NeutralityTest(unittest.TestCase):
-    """Every route ships at the shared constants.
+    """Every route ships at the shared constants but the deferral window.
 
     Route-conditional `alpha` was built and measured: it gains 0.014 on the dev
     half and loses on the held-out half, so it is reported as a negative result
     rather than shipped. These assertions are what keep it that way by accident
     becoming deliberate.
+
+    The one deliberate exception is the deferral pair, which ships ordered on
+    an argument about shoppers rather than a sweep result, and costs nothing:
+    see `test_only_the_two_ordered_routes_deviate_on_the_turn_budget`.
     """
 
     def test_no_route_deviates_on_alpha(self) -> None:
@@ -148,17 +152,48 @@ class NeutralityTest(unittest.TestCase):
         self.assertEqual(ranking.DENSE_WEIGHT, 0.0)
         self.assertEqual(ranking.DENSE_NEGATION_WEIGHT, 0.0)
 
-    def test_no_route_deviates_on_the_turn_budget(self) -> None:
-        states = (
-            dialogue.SessionState(),
-            dialogue.SessionState(constraints=("a", "b")),
-            dialogue.SessionState(pivoted=True, pivot_turn=4),
+    def test_only_the_two_ordered_routes_deviate_on_the_turn_budget(
+        self,
+    ) -> None:
+        """Discovery opens sooner than precision; nothing else deviates.
+
+        The pair is the one place the policy layer reaches retrieval, and it
+        is ordered rather than tuned: a customer who has told us least must not
+        be the one narrowed hardest.
+        """
+        self.assertLess(routing.DISCOVERY_DEFER, routing.PRECISION_DEFER)
+        self.assertEqual(routing.PRECISION_DEFER, ranking.MAX_DEFER_TURNS)
+
+        silent = dialogue.SessionState()
+        spoken = dialogue.SessionState(constraints=("a", "b"))
+        self.assertEqual(
+            routing.choose(silent).defer_turns, routing.DISCOVERY_DEFER
         )
-        for state in states:
-            with self.subTest(state=state):
-                self.assertEqual(
-                    routing.choose(state).defer_turns, ranking.MAX_DEFER_TURNS
-                )
+        self.assertEqual(
+            routing.choose(spoken).defer_turns, routing.PRECISION_DEFER
+        )
+
+        pivoted = dialogue.SessionState(pivoted=True, pivot_turn=4)
+        self.assertEqual(
+            routing.choose(pivoted).defer_turns, ranking.MAX_DEFER_TURNS
+        )
+
+    def test_the_discovery_window_is_unreachable_on_the_public_set(
+        self,
+    ) -> None:
+        """Declared, and measured neutral: no discovery turn reaches turn 4.
+
+        Ordering the pair costs exactly nothing on the public 200 because the
+        route it shortens is a turn-1 route. It fires on a customer who keeps
+        browsing without disclosing, which this evaluator never simulates, so
+        it ships as a stated invariant rather than as a score claim.
+        """
+        self.assertGreaterEqual(routing.DISCOVERY_DEFER, 3)
+
+    def test_the_route_head_ships_neutral(self) -> None:
+        """Widening a browsing slate is a measured negative (-0.0101 at two)."""
+        self.assertIsNone(routing.DISCOVERY_HEAD)
+        self.assertIsNone(routing.PRECISION_HEAD)
 
 
 class RecoveryRestartTest(unittest.TestCase):

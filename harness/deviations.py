@@ -127,6 +127,25 @@ DEVIATIONS = (
         ),
     ),
     Deviation(
+        "route_defer",
+        "routing.DISCOVERY_DEFER / routing.PRECISION_DEFER",
+        "3 and 6 (live): discovery opens sooner than precision",
+        (
+            ("neutral", {"routing.DISCOVERY_DEFER": None,
+                         "routing.PRECISION_DEFER": None}),
+            ("disc 2", {"routing.DISCOVERY_DEFER": 2}),
+            ("disc 1", {"routing.DISCOVERY_DEFER": 1}),
+            ("prec 8", {"routing.PRECISION_DEFER": 8}),
+        ),
+    ),
+    Deviation(
+        "route_head",
+        "routing.DISCOVERY_HEAD",
+        "None (defers to ranking.HEAD_SIZE, which is 1)",
+        tuple((f"disc {h}", {"routing.DISCOVERY_HEAD": h})
+              for h in (2, 3, 5, 10)),
+    ),
+    Deviation(
         "explore_fill",
         "ranking.EXPLORE_FILL",
         "False (live): the head is served alone and the withheld slots stay empty",
