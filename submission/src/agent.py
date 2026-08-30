@@ -56,7 +56,16 @@ class Agent:
         self._head = 0
         self._asked: str | None = None
         self._policy = policy_module.DISCOVERY
+        # Which policy the turn *sounds* like, as opposed to which one it
+        # retrieves under. The two differ only on a near-tie, and only while
+        # `policy.HYBRID_FRAMING` is on; they are the same name otherwise.
+        self._framing = policy_module.DISCOVERY
         self._workflow = orchestrate.shipped(policy_module.DISCOVERY)
+        # `D_{t-1}`. `None` means "no previous turn to carry", which is what
+        # makes the opening turn fall back to the derived prior rather than to
+        # zero. Session-scoped: `reset` clears it, so one shopper's readiness
+        # can never carry into a stranger's session.
+        self._readiness: float | None = None
         self._profile_ids: frozenset[int] = frozenset()
         self._user_profile: dict = {}
         self._scores: tuple[float, ...] = ()
@@ -90,7 +99,9 @@ class Agent:
         self._head = 0
         self._asked = None
         self._policy = policy_module.DISCOVERY
+        self._framing = policy_module.DISCOVERY
         self._workflow = orchestrate.shipped(policy_module.DISCOVERY)
+        self._readiness = None
         self._usage = llm.no_usage()
         self.debug = {}
         self._conversation_history = []
@@ -138,7 +149,7 @@ class Agent:
             message = response.compose(
                 self._state, self._parsed, self._contenders,
                 self._head, len(recommendations), asked,
-                self._policy,
+                self._framing,
                 probe.options(self._state, self.catalog, asked),
             )
 
@@ -160,6 +171,7 @@ class Agent:
             recommendations = self._degrade(error)
             asked = probe.WILDCARD
             self._policy = policy_module.DISCOVERY
+            self._framing = policy_module.DISCOVERY
             message = response.FALLBACK
             self._scores = (0.0,) * len(recommendations)
         self._usage = self._take_usage()
@@ -263,7 +275,7 @@ class Agent:
 
         candidate_count = len(self.catalog.pool(state.pool_keys))
         decision = policy_module.decide(
-            state, candidate_count, self._contenders
+            state, candidate_count, self._contenders, self._readiness
         )
         policy = decision.name
         route = routing.choose(state, policy, decision=decision)
@@ -287,7 +299,12 @@ class Agent:
         self._head = served.head
         self._scores = tuple(served.scores)
         self._policy = policy
+        self._framing = policy_module.framing(decision)
         self._workflow = workflow
+        # Carried into the next turn's recurrence. Written after the slate is
+        # served, so a turn that raises before this point leaves the estimate
+        # where it was rather than half-updated.
+        self._readiness = decision.readiness
         self._record(state, parsed, route, served, asins)
         return asins
 
@@ -410,6 +427,9 @@ class Agent:
             "variety": self._diversity_of(route),
             "policy_conf": route.policy_confidence,
             "policy_margin": route.policy_margin,
+            "readiness": route.decision_readiness,
+            "runner_up": route.policy_runner_up or "-",
+            "hybrid": route.policy_hybrid,
             "ordering": self._workflow.ordering,
             "switched": self._workflow.reason,
             "refuted": orchestrate.refuted(state),

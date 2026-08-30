@@ -142,6 +142,16 @@ class SweepTableTest(unittest.TestCase):
             "orchestrate.BLIND": False,
             "orchestrate.FRESHEST": False,
             "policy.RECOVERY_TURNS": 0,
+            # Phase 6Z. `READINESS_STEERS` ships on, so its row reads
+            # backwards; the thresholds and the recurrence weight are the
+            # curve it is read off. `HYBRID_FRAMING` ships off and reads
+            # forwards.
+            "policy.READINESS_STEERS": False,
+            "policy.PRECISION_READINESS_THRESHOLD": 0.7,
+            "policy.PARTIAL_READINESS_THRESHOLD": 0.3,
+            "policy.READINESS_CURRENT_WEIGHT": 0.7,
+            "policy.HYBRID_FRAMING": False,
+            "policy.HYBRID_MARGIN": 0.5,
         }
         swept = {
             dotted

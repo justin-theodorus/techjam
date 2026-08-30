@@ -110,6 +110,9 @@ class Route:
     policy_scores: tuple[tuple[str, float], ...] = ()
     policy_confidence: float = 0.0
     policy_margin: float = 0.0
+    decision_readiness: float = 0.0
+    policy_runner_up: str = ""
+    policy_hybrid: bool = False
 
 
 def choose(
@@ -180,6 +183,9 @@ def _route(
         decision.scores,
         decision.confidence,
         decision.margin,
+        decision.readiness,
+        decision.runner_up,
+        decision.hybrid,
     )
 
 

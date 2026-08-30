@@ -274,6 +274,45 @@ DEVIATIONS = (
              {"orchestrate.CANDIDATES": ("blend", "lexical")}),
         ),
     ),
+    # Phase 6Z. Decision readiness ships *off* as a controller and on as a
+    # trace, so this row reads forwards: a positive delta for "steer on it" is
+    # what would justify switching it on. Every cell measured neutral; the
+    # threshold arms bracket 0.7/0.3 on both sides so that verdict is read off
+    # a curve rather than a point (see `policy.READINESS_STEERS`).
+    Deviation(
+        "readiness",
+        "policy.READINESS_STEERS / *_READINESS_THRESHOLD / CURRENT_WEIGHT",
+        "steering off; readiness is reported but does not pick the policy",
+        (
+            ("steer on it", {"policy.READINESS_STEERS": True}),
+            ("commit at 0.5", {"policy.READINESS_STEERS": True,
+                               "policy.PRECISION_READINESS_THRESHOLD": 0.5}),
+            ("commit at 0.9", {"policy.READINESS_STEERS": True,
+                               "policy.PRECISION_READINESS_THRESHOLD": 0.9}),
+            ("partial at 0.15", {"policy.READINESS_STEERS": True,
+                                 "policy.PARTIAL_READINESS_THRESHOLD": 0.15}),
+            ("partial at 0.45", {"policy.READINESS_STEERS": True,
+                                 "policy.PARTIAL_READINESS_THRESHOLD": 0.45}),
+            ("weight 0.5", {"policy.READINESS_STEERS": True,
+                            "policy.READINESS_CURRENT_WEIGHT": 0.5}),
+            ("weight 0.9", {"policy.READINESS_STEERS": True,
+                            "policy.READINESS_CURRENT_WEIGHT": 0.9}),
+            ("memoryless", {"policy.READINESS_STEERS": True,
+                            "policy.READINESS_CURRENT_WEIGHT": 1.0}),
+        ),
+    ),
+    Deviation(
+        "hybrid_framing",
+        "policy.HYBRID_FRAMING / policy.HYBRID_MARGIN",
+        "off; a near-tie is reported but the winner still owns the turn",
+        (
+            ("runner-up framing", {"policy.HYBRID_FRAMING": True}),
+            ("tie under 0.25", {"policy.HYBRID_FRAMING": True,
+                                "policy.HYBRID_MARGIN": 0.25}),
+            ("tie under 1.0", {"policy.HYBRID_FRAMING": True,
+                               "policy.HYBRID_MARGIN": 1.0}),
+        ),
+    ),
     Deviation(
         "recovery_window",
         "policy.RECOVERY_TURNS",
