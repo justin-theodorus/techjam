@@ -70,6 +70,9 @@ def stages(agent, state, route, served, size: int) -> dict:
         dense_query, dense_negative, dense_weight,
     )
     contenders = ranking.contention(scores)
+    ordered, scores = ranking.phrase_promoted(
+        catalog, ordered, scores, state
+    )
     kept, kept_scores = ranking.unseen(
         catalog, ordered, scores, state.shown, size
     )
