@@ -29,6 +29,7 @@ demo.md
 problem_statement.md
 python-style-guide.md
 CLAUDE.md
+CONSTRAINT_FOCUS_PLAN.md
 # Local agent and notebook scratch.
 .claude/
 notebooks/
