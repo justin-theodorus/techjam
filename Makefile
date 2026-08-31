@@ -1,7 +1,7 @@
 PYTHON ?= python3
 export PYTHONPATH := .
 
-.PHONY: eval quick baseline split risk paraphrase sessions memory deviations dense llm trace misses diff test data clean playground
+.PHONY: eval quick baseline split risk paraphrase sessions memory deviations dense llm trace misses diff test data clean
 
 # Score the agent, write runs/latest.json, diff against the previous run.
 eval:
@@ -67,12 +67,6 @@ llm:
 	USE_LLM=1 $(PYTHON) -m harness.deviations --component llm_rerank --set \
 	  twin_cards,comparative_constraints,unstated_constraints,reworded_constraints,silent_customer
 
-# The demo instrument, not a measurement: a local UI that shows what happens
-# between the message and the slate. Reads submission/src, never writes to it,
-# and ships with nothing.
-playground:
-	$(PYTHON) -m playground.server
-
 trace:
 	$(PYTHON) -m harness.trace --limit 5 --full
 
@@ -86,7 +80,6 @@ test:
 	$(PYTHON) -m unittest discover -s tests
 	$(PYTHON) -m unittest discover -s harness/tests -t .
 	$(PYTHON) -m unittest discover -s submission/src/tests -t .
-	$(PYTHON) -m unittest discover -s playground/tests -t .
 
 data: data/catalog.jsonl
 data/catalog.jsonl:
