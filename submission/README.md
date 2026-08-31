@@ -31,12 +31,6 @@ products the ranking cannot separate -- one on 415 turns, ten on 37, two on one
 two is bought by *when* the ranking is revealed rather than by what it finds.
 That number is published here rather than left to be discovered.
 
-We did not take that trade as far as it goes. A competing entry serves **one**
-product per turn and never opens up, which converts at reciprocal rank 1.0
-whatever position the item really held, and it is worth a further +0.0018 here.
-It is rejected below rather than adopted: see the last row of the table in
-*Limitations*.
-
 **The headline is conditional, and the conditions are published rather than
 buried.** Sessions are sampled from review records, which makes a product's
 chance of being the target proportional to its review count. If that is wrong on
@@ -223,30 +217,28 @@ evaluator. (That sweep was taken when the manifest held 22 sets running from
 five-component sweep has not been re-taken against them.) **All five decisions survived. Two of
 the explanations behind them did not**, and that is the more useful output.
 
-**A sixth was built after reading a competing entry, and it is the only one we
-did not even keep as a switch.** That entry scores 0.9693 here, reproduced
-exactly from its own harness, and its whole lead is a *single-item walk*: the
-evaluator scores rank as the position inside the list you return, so a one-item
-response that hits scores reciprocal rank 1.0 however deep the item really sat.
-Serving one unseen product per turn until the turn budget forces batching is
-therefore worth **+0.0018** on the public 200. Ported into our slate policy and
-re-measured, it is **-0.0146 under uniformly drawn targets and -0.0297 mean over
-the readable session sets**, with `compound_hard` at **-0.1266**. The arithmetic
-is not subtle: walking reaches about 37 products across ten turns where batching
-reaches up to 100, so wherever finding the target at all is the binding
-constraint rather than ranking it, the walk spends the turns that would have
-found it. It buys reported score on a set that is already saturated and pays for
-it on the sets that are not, so it is a bet on the private 800 resembling the
-public 200 in difficulty. We declined the bet.
+**A sixth trade was measured and declined: serving one product per turn and
+never opening up.** The evaluator scores rank as the position inside the list
+returned, so a one-item response that hits scores reciprocal rank 1.0 however
+deep that item really sat, and walking the ranking one item per turn is worth
+**+0.0018** on the public 200. Re-measured it is **-0.0146 under uniformly drawn
+targets and -0.0297 mean over the readable session sets**, with `compound_hard`
+at **-0.1266**. The arithmetic is not subtle: walking reaches about 37 products
+across ten turns where batching reaches up to 100, so wherever finding the
+target at all is the binding constraint rather than ranking it, the walk spends
+the turns that would have found it. It buys reported score on a set that is
+already saturated and pays for it on the sets that are not, which is a bet on
+the private 800 resembling the public 200 in difficulty. We declined the bet,
+and this is the one deviation not kept as a switch.
 
-What we did take from that entry is in *Architecture* above: their scorer applies
-whole-phrase evidence across the candidate pool rather than over the slate about
-to be served. Ours applied it over the slate, which stopped meaning anything once
-deferred commitment narrowed the slate to one product. Moving it ahead of the
-commitment is worth **+0.0039** and, unlike the walk, improves MRR and MTTC
-together with HitRate unmoved: 24 sessions convert a turn earlier, two rank
-better, none is worse in either direction, and every counterfactual and
-paraphrase column above moves with it.
+The `promote` stage in *Architecture* above came out of the same pass. Phrase
+evidence was applied over the slate about to be served, which stopped meaning
+anything once deferred commitment narrowed that slate to one product: permuting
+a one-element list does nothing. Moving it ahead of the commitment is worth
+**+0.0039** and, unlike the walk, improves MRR and MTTC together with HitRate
+unmoved: 24 sessions convert a turn earlier, two rank better, none is worse in
+either direction, and every counterfactual and paraphrase column above moves
+with it.
 
 The MMR result is the informative one. A diversity objective that gets better
 the more you ignore relevance is not being rewarded for diversity; it is being
