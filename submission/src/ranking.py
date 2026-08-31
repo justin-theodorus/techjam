@@ -12,6 +12,11 @@ from submission.src import text
 ALPHA = 0.6
 SLATE_SIZE = 10
 
+# How far down the ranked pool whole-phrase evidence is allowed to reach before
+# the head is chosen. Zero restores the pre-6AA behaviour, where the same
+# evidence only ever permuted the served slate. See `phrase_promoted`.
+PHRASE_POOL = 20
+
 # How much the anonymised profile is allowed to move a ranking, and how much the
 # customer must still have left unsaid for it to be consulted at all.
 #
@@ -356,7 +361,14 @@ def slate(
         )
     else:
         ordered, scores = alternative(ordering, catalog, pool, state, alpha)
+    # Before the promotion, deliberately. `contention` counts how many
+    # products the *blend* cannot separate, and it reads its argument as a
+    # descending list; `phrase_promoted` returns one sorted by evidence
+    # instead, so measuring it afterwards counts an arbitrary prefix. That
+    # mis-read is worth +0.0008 on the public 200 and nothing on any guarded
+    # column, which is what a lucky bug looks like (findings 3.58).
     contenders = contention(scores)
+    ordered, scores = phrase_promoted(catalog, ordered, scores, state)
     ordered, scores = unseen(catalog, ordered, scores, state.shown, size)
     head = head_size(state, size, defer_turns, contenders, head_cap)
     if diversity > 0.0 and worth_diversifying(state, scores, size):
@@ -936,6 +948,50 @@ def rerank(
         return chosen
     positions = sorted(range(len(chosen)), key=lambda i: -evidence[i])
     return [chosen[position] for position in positions]
+
+
+def phrase_promoted(
+    catalog: catalog_module.Catalog,
+    ordered: list[int],
+    scores: list[float],
+    state: dialogue.SessionState,
+) -> tuple[list[int], list[float]]:
+    """Re-sorts the top of the pool by rare phrase evidence.
+
+    `rerank` applies the same evidence to the *served* slate, which was enough
+    while a slate was ten products wide. Deferred commitment made it inert:
+    the head resolves to one product on 429 of 482 public turns, and permuting
+    a one-element list does nothing. So the sharpest signal the catalog offers
+    stopped reaching the decision it is best at making -- which single product
+    to commit the turn to (findings 3.58).
+
+    Applied here it decides the head instead of decorating it. The sort is
+    stable, so a product no constraint names keeps its blend position and a
+    turn with no phrase evidence is returned untouched: this stage can only
+    promote, never demote into noise.
+
+    `PHRASE_POOL` bounds the reach. Wider is not better -- past the window the
+    blend is the only thing keeping globally-rare phrases from pulling
+    out-of-bucket products up -- and the surface is a plateau from 10 to 40,
+    so the width is not a fitted constant.
+    """
+    if not PHRASE_POOL:
+        return ordered, scores
+    phrase_ids = catalog.phrases.query_ids(state.constraints)
+    if not phrase_ids:
+        return ordered, scores
+    window = min(PHRASE_POOL, len(ordered))
+    evidence = [
+        catalog.phrases.evidence(index, phrase_ids)
+        for index in ordered[:window]
+    ]
+    if not any(evidence):
+        return ordered, scores
+    positions = sorted(range(window), key=lambda index: -evidence[index])
+    return (
+        [ordered[position] for position in positions] + ordered[window:],
+        [scores[position] for position in positions] + scores[window:],
+    )
 
 
 def pad(

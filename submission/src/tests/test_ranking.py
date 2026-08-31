@@ -801,3 +801,90 @@ class ContentionTest(unittest.TestCase):
         self.assertEqual(tight, 1)
         self.assertEqual(loose, 3)
         self.assertGreater(loose, tight)
+
+
+class PhrasePromotionTest(unittest.TestCase):
+    """Pins `PHRASE_POOL`, which decides the head rather than decorating it."""
+
+    # `fixtures.CATALOG_ROWS` gives this phrase to DEEP_15 alone, and orders
+    # the Sandals bucket by review count so prior rank is exactly the index.
+    # It therefore sits at rank 15: inside the shipped window, outside a
+    # narrow one, which is what makes the reach testable at all.
+    RARE = "hemp footbed marker"
+
+    def setUp(self) -> None:
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        path = fixtures.write_catalog(Path(root.name))
+        self.catalog = catalog_module.build(path)
+
+    def _promoted(self, *constraints: str, width: int | None = None) -> str:
+        """The asin the head would commit to, at `width`."""
+        state = dialogue.SessionState(
+            category=fixtures.DEEP_BUCKET, constraints=constraints
+        )
+        original = ranking.PHRASE_POOL
+        try:
+            if width is not None:
+                ranking.PHRASE_POOL = width
+            served = ranking.slate(self.catalog, state)
+        finally:
+            ranking.PHRASE_POOL = original
+        return self.catalog.asins[served.indices[0]]
+
+    def test_it_ships_live(self) -> None:
+        """So its sweep row reads backwards, like `NEGATION_WEIGHT`'s."""
+        self.assertEqual(ranking.PHRASE_POOL, 20)
+
+    def test_rare_evidence_decides_the_committed_head(self) -> None:
+        """The whole point: `rerank` cannot do this once the head is one wide."""
+        self.assertEqual(self._promoted(self.RARE), "DEEP_15")
+
+    def _sandals(self) -> list[int]:
+        """The Sandals bucket in prior order, so DEEP_15 sits at rank 15."""
+        by_asin = {asin: index for index, asin in enumerate(self.catalog.asins)}
+        return [by_asin[f"DEEP_{n:02d}"] for n in range(fixtures.DEEP_SIZE)]
+
+    def _reached(self, width: int) -> str:
+        """The head `phrase_promoted` yields over a fixed prior ordering.
+
+        Driven at the function rather than through `slate`, because the blend
+        also ranks the only product holding these tokens first: an end-to-end
+        assertion could not tell the two signals apart.
+        """
+        pool = self._sandals()
+        state = dialogue.SessionState(constraints=(self.RARE,))
+        original = ranking.PHRASE_POOL
+        try:
+            ranking.PHRASE_POOL = width
+            promoted, _ = ranking.phrase_promoted(
+                self.catalog, pool, [0.0] * len(pool), state
+            )
+        finally:
+            ranking.PHRASE_POOL = original
+        return self.catalog.asins[promoted[0]]
+
+    def test_the_window_bounds_the_reach(self) -> None:
+        """Rank 15 is past a ten-wide window, so nothing promotes it there."""
+        self.assertEqual(self._reached(10), "DEEP_00")
+        self.assertEqual(self._reached(20), "DEEP_15")
+
+    def test_zero_restores_the_pre_promotion_behaviour(self) -> None:
+        self.assertEqual(self._reached(0), "DEEP_00")
+
+    def test_a_constraint_no_product_names_leaves_the_blend_alone(self) -> None:
+        """It degrades to the prior rather than to noise."""
+        self.assertEqual(self._promoted("nothing says this"), "DEEP_00")
+
+    def test_scores_travel_with_the_products_they_belong_to(self) -> None:
+        """A slate whose scores stayed put would misreport every row."""
+        pool = tuple(range(len(self.catalog.asins)))
+        scores = [float(len(pool) - rank) for rank in range(len(pool))]
+        state = dialogue.SessionState(constraints=(self.RARE,))
+        before = dict(zip(pool, scores))
+        promoted, moved = ranking.phrase_promoted(
+            self.catalog, list(pool), scores, state
+        )
+        self.assertCountEqual(promoted, pool)
+        for index, score in zip(promoted, moved):
+            self.assertEqual(score, before[index])
