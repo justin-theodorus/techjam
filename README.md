@@ -181,11 +181,12 @@ as unknown and keep everything in memory and built once at construction.
 
 ## Team
 
-| contributor | commits | what they built |
-|---|---|---|
-| **Justin Stevenson Theodorus** | 44 | The measurement harness and every robustness gate; retrieval, the lexical/prior blend and the ranking stack; the frozen synthetic session sets and the deviation sweep; the six-policy dialogue layer; per-shopper memory and its rotation control; runtime re-orchestration on refuted orderings; phrase promotion |
-| **Angelica Gonathan** | 8 | Deferred commitment: withholding the slots below the committed head and holding them longer, deriving that head from ranking contention rather than asserting it, ordering the deferral window by route, and decision readiness as a traced scalar. **The largest scoring gain in the project** |
-| **Catherine Kang** | 8 | The customer-facing reply: naming what the slate is and what is in it, reading a constraint back under the attribute it was filed as, differentiating hard constraints from soft preferences, and measuring what asking a real question costs |
+| contributor | area |
+|---|---|
+| **Justin Stevenson Theodorus** | Retrieval and ranking, and the measurement harness the whole project is argued from: the robustness gates, the synthetic session sets, and the sweep that re-reads every component where it still has room to move |
+| **Angelica Gonathan** | Deferred commitment -- deciding how much of the ranking a turn should reveal, and deriving that from how well the ranking separates rather than fixing it in advance. The largest scoring gain in the project |
+| **Catherine Kang** | The customer-facing side of the dialogue: what the agent says about the slate it is serving, how it reads a constraint back, and what asking a real question costs |
+| **Azka Tazkiatunnafsi** | The demo: its flow and narrative structure, and the video itself |
 
 ## Layout
 
