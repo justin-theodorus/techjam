@@ -64,53 +64,90 @@ verify it against the published `SHA256SUMS`, and place it at the root of this
 checkout. Then:
 
 ```bash
-make data                                   # unpacks it to data/catalog.jsonl
-pip install -r submission/requirements.txt  # a no-op; stdlib only
+make data     # unpacks it to data/catalog.jsonl
 ```
 
-`submission/requirements.txt` installs nothing. It exists so the reproduction steps are the
-same as everyone else's. No API key, no environment variable and no network
-access is required for any number in this repository.
+There is nothing to install. `submission/requirements.txt` is a manifest with no
+packages in it, listed only so the reproduction steps read the same as everyone
+else's; `pip install -r submission/requirements.txt` is a no-op. No API key, no
+environment variable and no network access is required for any number in this
+repository.
+
+If you do not have `make`, or `gzip`, that step is one Python command:
+
+```bash
+python3 -c "import gzip,shutil; shutil.copyfileobj(gzip.open('catalog.jsonl.gz','rb'), open('data/catalog.jsonl','wb'))"
+```
 
 ## Reproduce our results
 
+**The shortest path, and the one that needs nothing but Python.** This is the
+organizer's own entry point, unmodified; it imports our agent through
+`starter/agent.py` and writes the full result to `results.json`:
+
 ```bash
-make eval        # 0.9672 -- the headline, ~20 s
+python3 -m evaluator.local_evaluator     # ~7 s
 ```
 
-That prints the per-scenario table above, a health line, and a diff against the
+```json
+{
+  "sample_count": 200,
+  "hit_rate_at_10": 1.0,
+  "mrr": 0.975042,
+  "mttc": 2.265,
+  "efficiency": 0.8735,
+  "recommended_technical_score": 0.967213,
+  "reported_token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+}
+```
+
+`results.json` also carries `scenario_metrics` for all four scenarios and a
+per-session record of rank and converting turn.
+
+**The same score, with more of the story:**
+
+```bash
+make eval        # 0.9672 -- ~20 s
+```
+
+That adds the per-scenario table above, a health line and a diff against the
 previous run. **Read the health line, not just the score:** the evaluator
 swallows an agent exception into an empty turn, so a crash is invisible in the
 score and has to be surfaced separately. `exceptions=0 discarded=0` is the real
-gate.
+gate, and it is the one thing `results.json` cannot tell you.
 
 `short_slates` is *not* a fault. It counts turns that served fewer than ten
 recommendations, which is the deferred-commitment policy described above doing
 its job.
 
-The rest of the battery, and what each command should print:
+The rest of the battery, and what each should print:
 
-| command | what it varies | expected |
-|---|---|---|
-| `make baseline` | nothing; asserts the frozen reference | exactly **0.10671** |
-| `make split` | which half of the public set | dev **0.9637** / held **0.9707** |
-| `make risk` | how targets are drawn | size-biased 0.9644, sqrt 0.9345, uniform **0.9139** |
-| `make paraphrase` | how the customer words things | reworded 0.9575, punctuation 0.9590, filler 0.9516, synonym **0.9318** |
-| `make sessions` | 23 frozen synthetic session sets | 99.0% rank-1 down to 16.0% |
-| `make deviations` | every component with a live switch, on all of the above | ~7 min |
-| `make memory` | whether a returning shopper converts faster | not a score |
-| `make test` | the suite | 566 tests, all green |
-| `python3 -m harness.run --no-fast-path` | template matching disabled entirely | **0.9660** |
+| command | equivalent without `make` | what it varies | expected |
+|---|---|---|---|
+| `make eval` | `python3 -m harness.run` | nothing | **0.9672** |
+| `make baseline` | `python3 -m harness.run --agent starter.baseline_agent:Agent --check-baseline` | nothing; asserts the frozen reference | exactly **0.10671** |
+| `make split` | `python3 -m harness.run --split dev` then `--split held` | which half of the public set | dev **0.9637** / held **0.9707** |
+| `make risk` | `python3 -m harness.counterfactual` | how targets are drawn | size-biased 0.9644, sqrt 0.9345, uniform **0.9139** |
+| `make paraphrase` | `python3 -m harness.paraphrase` | how the customer words things | reworded 0.9575, punctuation 0.9590, filler 0.9516, synonym **0.9318** |
+| `make sessions` | `python3 -m harness.sessions` | 23 frozen synthetic session sets | 99.0% rank-1 down to 16.0% |
+| `make deviations` | `python3 -m harness.deviations` | every component with a live switch, on all of the above | ~7 min |
+| `make memory` | `python3 -m harness.returning` | whether a returning shopper converts faster | not a score |
+| `make test` | see below | the suite | 566 tests, all green |
+| -- | `python3 -m harness.run --no-fast-path` | template matching disabled entirely | **0.9660** |
+
+`make` is only a wrapper; every target is one standard-library Python command.
+Run them from the repository root, which is what puts the packages on the import
+path. The test suite is three commands:
+
+```bash
+python3 -m unittest discover -s tests
+python3 -m unittest discover -s harness/tests -t .
+python3 -m unittest discover -s submission/src/tests -t .
+```
 
 Two commands cost money or need credentials and are excluded from every reported
 number: `make llm` (the model rerank tier) and `make dense` (the dense retrieval
 tier). Both components ship switched off.
-
-The organizer's own entry point still works and remains the source of truth:
-
-```bash
-python3 -m evaluator.local_evaluator     # writes results.json
-```
 
 ## Limitations
 

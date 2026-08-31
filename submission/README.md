@@ -65,8 +65,19 @@ pip install -r submission/requirements.txt        # no-op, stdlib only
 **One command to score the agent:**
 
 ```bash
-PYTHONPATH=. python3 -m harness.run --agent submission.agent:Agent
+python3 -m harness.run --agent submission.agent:Agent
 ```
+
+The organizer's own entry point reaches the same agent through
+`starter/agent.py` and needs no harness at all, writing `results.json`
+(`recommended_technical_score` 0.967213):
+
+```bash
+python3 -m evaluator.local_evaluator
+```
+
+Both are run from the repository root, which is what puts the packages on the
+import path. Neither needs `make`, and there is nothing to install.
 
 One environment variable is read, and only one: `USE_LLM=1` opts into the model-backed
 rerank tier (below). Unset, nothing in the agent reads the environment, the network or a
