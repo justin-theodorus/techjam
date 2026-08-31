@@ -304,7 +304,7 @@ nothing.**
 | Per-turn latency | p50 2.5 ms, p95 8.0 ms, max 20.1 ms over 482 turns |
 | Same, with Tier 2 on | p50 1,087 ms, p95 1,393 ms, max 8,604 ms; 326,851/11,628 tokens, $0.3850 |
 | One-time index build | ~12 s |
-| Resident memory | 262 MB |
+| Resident memory | 242 MB, of which 11.2 MB is the product-title table the reply names its recommendations from |
 | Bundled assets | `assets/dense.bin`, 4.92 MB, loaded in 2.6 ms, **weight 0** |
 
 Latency and memory come from the same run as the reported score.

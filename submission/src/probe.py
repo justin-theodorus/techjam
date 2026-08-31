@@ -50,15 +50,22 @@ REPEAT_DECAY = 0.4
 
 # Whether a question may name a specific attribute instead of the wildcard.
 #
-# Ships live, and it is the one switch here that costs score: measured at
-# -0.0104 mean across eight frozen sets, and the wildcard is served on 0 of
-# 444 public turns with it on (findings 3.37). It is on because the wildcard
-# arm is a question no shopper asks -- "anything else?" repeated for ten turns
-# is the conversational cost the efficiency metric exists to discourage, and
-# the brief names structured clarification as a goal in its own right.
+# Ships live, and it is the one switch here that costs score. Re-measured
+# across the public set and the 23 frozen session sets: the wildcard is worth
+# **+0.0020 mean**, and specific arms lose on 10 of the 24 -- worst on
+# `compound_hard` (-0.0242), `thin_cards` (-0.0229) and `returning_shopper`
+# (-0.0177). They *win* on 13, most clearly on `unrelated_pivot` (+0.0145) and
+# `silent_customer` (+0.0101), where a pointed question restarts a conversation
+# the wildcard lets drift. On the public 200 alone they are +0.0011.
 #
-# Turn it off and the agent reverts to the wildcard exactly, which is what the
-# reported 0.9554 measured.
+# (An earlier reading of -0.0104 across eight sets is superseded: the set count
+# and the agent both moved. The direction held, the magnitude did not.)
+#
+# It is on because the wildcard arm is a question no shopper asks. Off, the
+# agent asks "anything else?" 11,332 times and asks nothing else, ever; on,
+# roughly three questions in four name a real attribute. The brief names
+# structured clarification as a goal in its own right, and the README's
+# "What we spent score on" section carries the whole table.
 SPECIFIC_ARMS = True
 
 # How many of the live contenders to score an arm against. The pool is

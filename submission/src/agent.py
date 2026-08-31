@@ -151,6 +151,8 @@ class Agent:
                 self._head, len(recommendations), asked,
                 self._framing,
                 probe.options(self._state, self.catalog, asked),
+                self._names(recommendations),
+                ranking.SLATE_SIZE,
             )
 
             self._conversation_history.append((user_message, message))
@@ -232,6 +234,17 @@ class Agent:
             self._usage["prompt_tokens"] + self._usage["completion_tokens"]
         )
         self.debug["llm_ms"] = self._usage["milliseconds"]
+
+    def _names(self, asins: tuple[str, ...]) -> tuple[str, ...]:
+        """Returns the catalog titles behind a slate, for the reply to name.
+
+        Read-only and reply-only: `ranking` never sees these, so a missing or
+        empty title costs the customer a name and costs the score nothing.
+        """
+        titles = self.catalog.titles
+        if not titles:
+            return ()
+        return tuple(titles.get(asin, "") for asin in asins)
 
     def _payload(self, asins: tuple[str, ...]) -> list[dict]:
         """Returns the recommendation list, scored where a score exists.
