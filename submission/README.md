@@ -44,8 +44,8 @@ are gated in CI:
 | `make paraphrase` | how the customer words things | reworded 0.9575, punctuation 0.9590, filler 0.9516, synonym **0.9318** |
 | `--no-fast-path` | template matching disabled entirely | **0.9660** |
 | `make sessions` | 23 manufactured session sets | 99.0% rank-1 (`sparse_buckets`) down to 16.0% (`compound_hard`) |
-| `make deviations` | every live and switched-off component, on all of the above | ten components, all verdicts hold; health clean, no `unmoved` warning *(last run at an earlier commit -- re-run before quoting)* |
-| `make dense` | the Tier 1 dense track, on every gate | loses on 14 of 15 readable sets; a wash on the full battery. **Switched off** *(last run at an earlier commit)* |
+| `make deviations` | every live and switched-off component, on all of the above | all verdicts hold; health clean, no `unmoved` warning *(last taken before the phrase promotion of 3.58; every other row on this table was re-taken after it)* |
+| `make dense` | the Tier 1 dense track, on every gate | loses on 14 of 15 readable sets; a wash on the full battery. **Switched off** *(last taken before the phrase promotion of 3.58)* |
 
 Read `uniform` as a pessimistic bound rather than a forecast: a uniformly drawn
 target is not merely less popular, it is a genuinely harder product with thinner
@@ -286,8 +286,14 @@ nothing.**
   yields nothing. It does not change the decision, because the wildcard arm
   dominates by construction, but a policy needing to rank specific arms would
   need customer-side evidence this estimator does not have.
-- There is no cross-session identity, so no long-term user profile is possible.
-  What is implemented is within-session context distillation.
+- The published contract has no field a shopper identity could travel in:
+  `reset_request` and `user_profile` are both closed with
+  `additionalProperties: false`, and the evaluator issues a fresh session id
+  every time. Per-shopper memory is implemented in `src/memory.py` and reachable
+  only through `Agent.remember()`, which nothing on the organizer's path calls,
+  so `make eval` is untouched by it by construction rather than by tuning. It is
+  observable only under `make memory`, which supplies identity alongside the real
+  evaluator.
 - **Dense retrieval is built and switched off, which is a result rather than an
   omission.** `submission/src/dense.py` is a 64-dimension latent semantic space
   over the catalog's own `title` + `features`, and `routing.choose()` selects
@@ -326,7 +332,7 @@ nothing.**
 | Estimated API cost | $0.00 |
 | Network calls | none |
 | Environment read | `USE_LLM` only; unset in every number above |
-| Per-turn latency | p50 1.0 ms, p95 3.7 ms, max 21.9 ms over 453 turns |
+| Per-turn latency | p50 0.95 ms, p95 3.19 ms, max 5.68 ms over 453 turns |
 | Same, with Tier 2 on | p50 1,087 ms, p95 1,393 ms, max 8,604 ms; 326,851/11,628 tokens, $0.3850 |
 | One-time index build | ~12 s |
 | Resident memory | 242 MB, of which 11.2 MB is the product-title table the reply names its recommendations from |
@@ -348,7 +354,7 @@ make deviations                                    # every component with a live
 #                                                  #   probe.SPECIFIC_ARMS False vs True
 make dense                                         # the Tier 1 ablation, switched on
 make llm                                           # the Tier 2 ablation; needs a key
-make test                                          # 580 tests
+make test                                          # 566 tests
 python3 -m harness.run --no-fast-path --no-diff    # 0.9660, general path alone
 ```
 
@@ -373,17 +379,20 @@ submission/
     understand.py    message -> ParsedTurn, three layers
     category.py      free text -> catalog category buckets
     dialogue.py      session state machine, targeted override
-    slots.py         constraint typing, taxonomy learned from the catalog
-    routing.py       retrieval policy per route
+    slots.py         constraint typing and refusal, taxonomy from the catalog
+    policy.py        names one of six dialogue policies per turn
+    orchestrate.py   names the ordering each turn serves from
+    routing.py       maps a policy to a retrieval route
     probe.py         expected-disclosure question selection
-    ranking.py       the blend, the slate, the rerank seam
-    dense.py         Tier 1 latent retrieval; switched off
-    llm.py           Tier 2 model rerank; switched off, lazily imported
     response.py      customer-facing reply, composed from state
     catalog.py       one-pass build: buckets, priors, indexes
     bm25.py          flat token-id postings
+    ranking.py       the blend, the slate, the promotion, the rerank seam
     phrases.py       whole-phrase rarity index
+    dense.py         Tier 1 latent retrieval; switched off
+    llm.py           Tier 2 model rerank; switched off, lazily imported
+    memory.py        one bounded, decayed record per shopper
     text.py          the single tokenisation path
-    tests/           256 tests
+    tests/           455 tests
 harness/             measurement and robustness gates
 ```

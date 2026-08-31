@@ -222,7 +222,7 @@ are exactly the two dimensions 3.18 shows are least informative.
 **Constraints belong in the BM25 query over `title`+`features`, not in typed
 slots backed by hard filters.** Typed state is still right for *dialogue*
 bookkeeping -- what was disclosed, what a pivot superseded, what was refused --
-and that is what `slots.py` is for.
+and that is what `submission/src/slots.py` is for.
 
 ## 3.20 The two risks are insured by opposite components, and that sets `alpha`
 
@@ -579,7 +579,8 @@ every product declares a size, so raw coverage rates the arm highly, and entropy
 does not correct it because size values genuinely vary. What was missing is how
 likely the customer is to *mention* it, which the card's ordering supplied for
 free. The transferable substitute is **position within the product's own
-listing**, which is why `catalog.py` builds position-weighted lead lines.
+listing**, which is why `submission/src/catalog.py` builds position-weighted lead
+lines.
 
 ## 3.41 The specific-arm probe, implemented
 
@@ -684,7 +685,7 @@ submission, and the two must be reported separately rather than conflated.
 Note also that a **non-string `message` discards the entire response,
 recommendations included** -- an agent returning the correct target at slot 1
 with no `message` key scores 0.000. That is why the exception envelope in
-`agent.py` guarantees a string on every path.
+`submission/src/agent.py` guarantees a string on every path.
 
 ## 3.47 The dialogue policy layer, and the routing branch it repaired
 
