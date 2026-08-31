@@ -73,14 +73,22 @@ def stages(agent, state, route, served, size: int) -> dict:
     kept, kept_scores = ranking.unseen(
         catalog, ordered, scores, state.shown, size
     )
-    head = ranking.head_size(state, size, route.defer_turns, contenders)
+    head = ranking.head_size(
+        state, size, route.defer_turns, contenders, route.head_cap
+    )
     if diversity > 0.0 and ranking.worth_diversifying(state, kept_scores, size):
         chosen = ranking.diversify(
             catalog, kept, kept_scores, head, size, diversity
         )
     else:
         chosen = ranking.explore(catalog, kept, kept_scores, head, size)
-    padded = ranking.pad(catalog, chosen, state.category, size)
+    # `slate` shortens rather than pads when the head withholds slots, so the
+    # replay has to withhold them too or it reports slots that were never
+    # served.
+    served_size = (
+        head if (not ranking.EXPLORE_FILL and head < size) else size
+    )
+    padded = ranking.pad(catalog, chosen, state.category, served_size)
 
     # Deliberately not `agent.reranker`: a model stage is a network call with
     # its own sampling, so replaying it would neither be free nor guaranteed to

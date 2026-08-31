@@ -59,7 +59,13 @@ class AgentTest(unittest.TestCase):
             response["usage"], {"prompt_tokens": 0, "completion_tokens": 0}
         )
 
-    def test_every_turn_emits_a_full_slate_of_unique_ids(self) -> None:
+    def test_every_turn_emits_a_valid_non_empty_slate(self) -> None:
+        """Length is the head's to decide; validity and uniqueness are not.
+
+        A narrowing turn serves its committed head alone under
+        `ranking.EXPLORE_FILL`, so the invariant is that every slate is
+        non-empty, within budget, free of repeats and drawn from the catalog.
+        """
         self.agent.reset("s1", {})
         messages = [
             OPENING,
@@ -68,8 +74,9 @@ class AgentTest(unittest.TestCase):
         ]
         for turn, message in enumerate(messages, start=1):
             asins = _asins(self.agent.respond("s1", message, turn, 10))
-            self.assertEqual(len(asins), ranking.SLATE_SIZE)
-            self.assertEqual(len(set(asins)), ranking.SLATE_SIZE)
+            self.assertGreaterEqual(len(asins), 1)
+            self.assertLessEqual(len(asins), ranking.SLATE_SIZE)
+            self.assertEqual(len(set(asins)), len(asins))
             self.assertTrue(set(asins) <= self.agent.catalog.ids)
 
     def test_recommendation_items_carry_only_contract_fields(self) -> None:
@@ -137,13 +144,24 @@ class AgentTest(unittest.TestCase):
 
     def test_an_unknown_session_id_starts_clean(self) -> None:
         response = self.agent.respond("never-reset", OPENING, 1, 10)
-        self.assertEqual(len(_asins(response)), ranking.SLATE_SIZE)
+        self.assertEqual(len(_asins(response)), ranking.HEAD_SIZE)
 
     def test_a_failing_stage_degrades_to_the_previous_slate(self) -> None:
+        """The rung needs a full previous slate, so open the head first.
+
+        A narrowing turn now serves its committed head alone, and `_degrade`
+        takes this rung only for a slate of `SLATE_SIZE` -- below that the pool
+        offers more slots, and on an error path every slot is a free chance at
+        a hit.
+        """
         self.agent.reset("s1", {})
-        expected = _asins(self.agent.respond("s1", OPENING, 1, 10))
+        self.agent.respond("s1", OPENING, 1, 10)
+        expected = _asins(self.agent.respond(
+            "s1", "I don't have an additional preference for other.", 2, 10
+        ))
+        self.assertEqual(len(expected), ranking.SLATE_SIZE)
         self._break_ranking()
-        served = _asins(self.agent.respond("s1", OPENING, 2, 10))
+        served = _asins(self.agent.respond("s1", OPENING, 3, 10))
         self.assertEqual(served, expected)
         self.assertEqual(self.agent.debug["degraded"], "last_slate")
 
@@ -172,7 +190,7 @@ class AgentTest(unittest.TestCase):
         for message in (None, "", 42, "   ", " garbage"):
             response = self.agent.respond("s1", message, 1, 10)
             self.assertIsInstance(response["message"], str)
-            self.assertEqual(len(_asins(response)), ranking.SLATE_SIZE)
+            self.assertGreaterEqual(len(_asins(response)), 1)
 
     def test_the_debug_dict_carries_flat_scalars_for_the_trace(self) -> None:
         self.agent.reset("s1", {})
