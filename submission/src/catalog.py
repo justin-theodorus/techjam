@@ -90,6 +90,11 @@ class Catalog:
     # 50,000 product descriptions are dead weight on the scored path and the
     # one thing a prompt cannot do without.
     cards: tuple[str, ...] | None = None
+    # Each product's title, for naming a recommendation in the reply. Held
+    # because `_document_text` folds the title into the index and drops it, and
+    # a slate the customer cannot see is a slate they cannot react to. 3.8 MB
+    # over 50,000 products, and nothing in ranking reads it.
+    titles: dict[str, str] | None = None
 
     def bucket(self, key: str | None) -> tuple[int, ...]:
         """Returns the pool for one bucket key, popularity-ordered.
@@ -150,6 +155,7 @@ def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
     """
     asins: list[str] = []
     documents: list[str] = []
+    titles: dict[str, str] = {}
     prior: list[float] = []
     bucket_members: dict[str, list[int]] = {}
     pad_members: dict[str, list[int]] = {}
@@ -166,6 +172,7 @@ def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
             product = json.loads(line)
             asins.append(str(product["parent_asin"]))
             prior.append(_prior(product))
+            titles[str(product["parent_asin"])] = str(product.get("title") or "")
             document = _document_text(product)
             if cards:
                 documents.append(document)
@@ -216,6 +223,7 @@ def build(catalog_path: str | Path, cards: bool = False) -> Catalog:
         taxonomy=taxonomy,
         dense=_dense(asins),
         cards=tuple(documents) if cards else None,
+        titles=titles,
         offers=offers,
         offer_ids=offer_ids,
         offer_text=offer_text,

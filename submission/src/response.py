@@ -15,6 +15,8 @@ customer can catch the agent misunderstanding them.
 
 from __future__ import annotations
 
+import re
+
 from submission.src import dialogue
 from submission.src import intent_detector
 from submission.src import persona_classifier
@@ -24,6 +26,25 @@ from submission.src import probe as probe_module
 # Reading a long constraint back verbatim is worse than not reading it back.
 MAX_QUOTED = 42
 MAX_LISTED = 2
+
+# How many products a reply names before it stops listing and names only the
+# first. Ten titles is a wall of text; three is still a sentence.
+MAX_NAMED = 3
+# Below this, a title trimmed at its first separator is a bare brand token
+# ("MxG") rather than a name, so more of the raw title is taken instead.
+MIN_NAME = 16
+MAX_NAME = 46
+
+# Where a title stops being a name and starts being marketing copy.
+_NAME_CUT = re.compile(r"\s+[-|,\u2013\u2014]\s+|\s*\(")
+
+# Catalog text is written for a database, not for reading aloud. These space it
+# out without removing anything: the acknowledgement is the customer's only
+# chance to catch a misparse, so `Material:alloy` keeps its prefix and becomes
+# `Material: alloy` rather than `alloy`.
+_TIGHT_COLON = re.compile(r":(?=\S)")
+_TIGHT_COMMA = re.compile(r",(?=[^\s\d])")
+_TIGHT_PERCENT = re.compile(r"(\d)%(?=[A-Za-z])")
 
 # Above this many products still in contention, the slate is not yet a
 # recommendation and the reply should say so rather than imply confidence.
@@ -71,6 +92,8 @@ def compose(
     asked: str | None,
     policy: str = policy_module.DISCOVERY,
     options: tuple[str, ...] = (),
+    names: tuple[str, ...] = (),
+    size: int = 10,
 ) -> str:
     """Returns the customer-facing reply for the turn just served.
 
@@ -90,13 +113,22 @@ def compose(
         policy: This turn's dialogue policy, which decides the framing.
         options: Values of `asked` the live pool actually offers, if any are
           worth putting to the customer.
+        names: Titles of the products this slate carries, in slate order.
+          Absent, the slate is described by count alone.
+        size: The full slate width, so a held-back slate can be told apart
+          from a committed one.
+
+    Returns three lines -- what was understood, what is being shown, what is
+    being asked -- because a customer scanning a reply should not have to find
+    the question inside a paragraph.
     """
+    acknowledged = _acknowledge(state, parsed)
     parts = [
-        _acknowledge(state, parsed),
-        _slate(contenders, head, served),
-        _question(state, parsed, asked, policy, options),
+        acknowledged,
+        _slate(contenders, head, served, names, size),
+        _question(state, parsed, asked, policy, options, bool(acknowledged)),
     ]
-    reply = " ".join(part for part in parts if part)
+    reply = "\n".join(part for part in parts if part)
     return reply or FALLBACK
 
 
@@ -108,9 +140,9 @@ def _acknowledge(
         replacing = _listed(parsed.constraints)
         dropped = _listed(_distinct(state.superseded, parsed.constraints))
         if replacing and dropped:
-            return f"Understood, {replacing} instead of {dropped}."
+            return _stopped(f"Understood, {replacing} instead of {dropped}")
         if replacing:
-            return f"Understood, {replacing} it is."
+            return _stopped(f"Understood, {replacing} it is")
         return "Understood, starting over on that."
 
     if parsed.boundary_refusal:
@@ -130,31 +162,91 @@ def _acknowledge(
         return "Thanks, I think I have what I need."
 
     if parsed.constraints:
-        return f"Got it: {_listed(parsed.constraints)}."
+        return _stopped(f"Got it, {_listed(parsed.constraints)}")
 
     if state.turn <= 1 and state.category:
         return f"Happy to help you find {state.category.lower()}."
     return ""
 
 
-def _slate(contenders: int, head: int, served: int) -> str:
+def _slate(
+    contenders: int,
+    head: int,
+    served: int,
+    names: tuple[str, ...] = (),
+    size: int = 10,
+) -> str:
     """Returns what the recommendations on this turn are, and are not.
 
     The distinction is real, not decoration: a committed slate is the ranking's
-    ten best, while a held-back one is one pick plus a spread it has not
-    committed to. Telling the customer which they are looking at is what makes
-    the second honest rather than merely odd.
+    full page, while a held-back one is what the evidence so far can actually
+    justify. Telling the customer which they are looking at is what makes the
+    second honest rather than merely odd.
+
+    The branch used to test `head >= served`, which stopped meaning anything
+    when `ranking.EXPLORE_FILL` was switched off: the slate then carries only
+    the committed head, so `served == head` on every turn and every held-back
+    slate described itself as "the 1 closest matches". The question is not how
+    the head compares to what was served, it is whether anything was held back.
     """
     if not served:
         return ""
-    if head >= served:
-        return f"Here are the {served} closest matches, best first."
-    if contenders > CROWDED:
-        return (
-            f"My best match is first; the rest are a spread of "
-            f"{served - head} others while we narrow down."
-        )
-    return f"Here is my best match, with {served - head} more to compare."
+    listed = _names(names)
+    if served >= size:
+        tail = f", starting with {listed[0]}" if listed else ", best first"
+        return f"Here are all {served} closest matches{tail}."
+    if served == 1:
+        named = f": {listed[0]}" if listed else ""
+        return f"Here is the closest match I can justify so far{named}."
+    named = f": {_join(listed)}" if listed else ""
+    return f"Here are the {served} I can justify so far{named}."
+
+
+def _names(titles: tuple[str, ...]) -> list[str]:
+    """Returns slate titles as sayable names, with repeats collapsed.
+
+    Variants of one product share a title -- 3.8% of three-product slates hold
+    a pair -- and naming both reads as a stutter. Collapsing them also tells
+    the customer something true: the slate is narrower than its count.
+    """
+    grouped: list[list] = []
+    for title in titles[:MAX_NAMED]:
+        name = _name(title)
+        if not name:
+            continue
+        for row in grouped:
+            if row[0] == name:
+                row[1] += 1
+                break
+        else:
+            grouped.append([name, 1])
+    return [row[0] if row[1] == 1 else f"{row[0]} ({row[1]} variants)"
+            for row in grouped]
+
+
+def _name(title: str) -> str:
+    """Returns a catalog title trimmed to something worth saying."""
+    cleaned = " ".join(str(title).split())
+    if not cleaned:
+        return ""
+    head = _NAME_CUT.split(cleaned)[0].strip()
+    if len(head) < MIN_NAME:
+        # Cutting at the first separator left a bare brand token; take more.
+        head = cleaned
+    if len(head) > MAX_NAME:
+        head = head[:MAX_NAME].rsplit(" ", 1)[0]
+    return head.strip()
+
+
+def _join(values: list[str]) -> str:
+    """Returns a readable list of two or more names."""
+    if not values:
+        return ""
+    if len(values) == 1:
+        return values[0]
+    if len(values) == 2:
+        return f"{values[0]} and {values[1]}"
+    return ", ".join(values[:-1]) + f", and {values[-1]}"
 
 
 def _question(
@@ -163,6 +255,7 @@ def _question(
     asked: str | None,
     policy: str = policy_module.DISCOVERY,
     options: tuple[str, ...] = (),
+    acknowledged: bool = False,
 ) -> str:
     """Returns the clarifying question, framed the way the policy asks for.
 
@@ -190,7 +283,11 @@ def _question(
         return _closed(f"Let us try another angle. {_stem(asked)}")
 
     if policy == policy_module.BOUNDARY:
-        opening = "" if parsed.boundary_refusal else _released(state)
+        # `_acknowledge` speaks first and already names a refusal when this
+        # turn carried one. Repeating it here put "No problem, material can
+        # stay open" *after* the slate on a turn that also disclosed something.
+        spoken = parsed.boundary_refusal or acknowledged
+        opening = "" if spoken else _released(state)
         if listed:
             return _closed(f"{opening}Would {listed} suit you better")
         return _closed(f"{opening}{_stem(asked)}")
@@ -280,14 +377,48 @@ def _listed(values: tuple[str, ...]) -> str:
         return ""
     if len(quoted) == 1:
         return quoted[0]
-    return " and ".join(quoted)
+    # "material: alloy and buckle closure" reads as though both belong to the
+    # material. A semicolon keeps the two apart once either carries a prefix.
+    joiner = "; " if any(":" in value for value in quoted) else " and "
+    return joiner.join(quoted)
+
+
+def _stopped(sentence: str) -> str:
+    """Returns a sentence ended once. A trimmed value already carries its own
+    ellipsis, and appending a full stop to it produces "coverage....".
+    """
+    return sentence if sentence.endswith(("...", ".", "?", "!")) else f"{sentence}."
+
+
+def _readable(value: str) -> str:
+    """Returns catalog text spaced for reading, with its meaning intact.
+
+    Nothing is removed, and the field prefix least of all. The acknowledgement
+    is the only place a customer can catch the agent having misread them, so
+    `Material:alloy` becomes `Material: alloy` rather than `alloy` -- and
+    `Item model number: G796` keeps the half that makes `G796` mean anything.
+    """
+    cleaned = " ".join(str(value).split())
+    cleaned = _TIGHT_COLON.sub(": ", cleaned)
+    cleaned = _TIGHT_COMMA.sub(", ", cleaned)
+    cleaned = _TIGHT_PERCENT.sub(r"\1% ", cleaned)
+    return cleaned.strip(" -;,.")
 
 
 def _short(value: str) -> str:
-    """Returns a constraint trimmed to something worth reading aloud."""
-    cleaned = " ".join(value.split())
+    """Returns a constraint trimmed to something worth reading aloud.
+
+    An over-long value is cut at its first clause rather than mid-sentence: a
+    raw character cut can keep the prefix and discard the value it labels
+    (`Solids: 100% Cotton; heathers: 75% cot...`), which is worse than saying
+    less.
+    """
+    cleaned = _readable(value)
     if len(cleaned) <= MAX_QUOTED:
         return cleaned.lower()
+    clause = cleaned.split(";", 1)[0].strip()
+    if clause and len(clause) <= MAX_QUOTED:
+        return clause.lower()
     cut = cleaned[:MAX_QUOTED].rsplit(" ", 1)[0]
     return f"{cut.lower()}..." if cut else ""
 
