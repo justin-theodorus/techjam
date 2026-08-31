@@ -43,6 +43,128 @@ high target coverage
 + low turns to conversion
 ```
 
+The engineering objective goes beyond the benchmark. We wanted a system that could be implemented in a real shopping product: low-latency, inexpensive, explainable, resilient to missing services, and able to justify both the products it shows and the questions it asks. That is why the scored path uses catalog-derived evidence, bounded session state, deterministic fallbacks, and no external runtime dependency.
+
+### Interpreting Buying and Browsing
+
+We did not assume that “buying” and “browsing” require unrelated retrieval systems. The public sessions show a clear difference in **when information arrives**, but not in the information ultimately available:
+
+| Intent   | Constraints before turn 1 | Turn 2 | Turn 3 | Turn 4 |
+| -------- | ------------------------: | -----: | -----: | -----: |
+| Buying   |                      1.00 |   3.00 |   4.00 |   4.00 |
+| Browsing |                      0.00 |   2.00 |   4.00 |   4.00 |
+
+Buying sessions begin one constraint ahead; both intents contain the same mean number of constraints from turn 3 onward. We therefore interpret intent as a **conversation-policy signal**—how quickly SATU should move from discovery to precision—not as evidence that the catalog needs a different semantic retriever. Five attempts to give each intent separate retrieval weights were neutral or negative, so the shipped retrieval constants remain shared.
+
+The public score supports that interpretation: buying reaches conversion in 1.79 turns and browsing in 2.05, while both achieve 100% HitRate@10 and nearly identical MRR (0.967 versus 0.970). The small timing gap follows the one-turn information lead; it is not evidence of weaker retrieval for browsing.
+
+## Mathematical Formulation
+
+### Evaluation Objective
+
+For `N` sessions, target rank `r_i`, and first-hit turn `t_i`:
+
+```text
+HitRate@10 = (1/N) Σ 1[r_i ≤ 10]
+MRR        = (1/N) Σ 1/r_i             (misses contribute 0)
+MTTC       = (1/N) Σ t_i               (misses are assigned turn 11)
+Efficiency = clip((11 − MTTC) / 10, 0, 1)
+
+TechnicalScore = 0.50·HitRate@10 + 0.30·MRR + 0.20·Efficiency
+```
+
+This weighting explains why showing ten products immediately is not optimal: it can improve MTTC while reducing reciprocal rank enough to lower the combined score.
+
+### Lexical and Popularity Ranking
+
+SATU uses BM25 with `k₁ = 0.6` and `b = 0.3`:
+
+```text
+IDF(q) = ln(1 + (N − df(q) + 0.5) / (df(q) + 0.5))
+
+BM25(d,Q) = Σ IDF(q) · tf(q,d)·(k₁+1)
+                         ─────────────────────────────
+                         tf(q,d)+k₁·(1−b+b·|d|/avgdl)
+```
+
+The normalized lexical score is blended with the normalized popularity prior:
+
+```text
+S(d) = BM25(d,Q) / max BM25 + 0.6 · Popularity(d) / max Popularity
+```
+
+Moving from textbook BM25 parameters (`1.2`, `0.75`) to (`0.6`, `0.3`) improved TechnicalScore by 0.030. The shorter catalog documents need less term-frequency saturation and less length normalization.
+
+### Candidate Contention
+
+“Contention” has one exact meaning: the number of top-ranked products whose blended scores are within a relative margin `m` of the leader.
+
+```text
+C(m) = |{d : S(d) ≥ S(best)·(1−m)}|
+```
+
+The shipped margin is:
+
+```text
+m = 0.0005 = 0.05%
+```
+
+Example: if the leader scores `1.2000`, a product is still in contention only when its score is at least `1.2000 × 0.9995 = 1.1994`.
+
+This is not model fine-tuning and it is not an arbitrary “candidate confidence” label. It is a measured tolerance applied to the deterministic blended scores. The committed head is:
+
+```text
+head = min(10, max(1, C(0.0005)))
+```
+
+unless the shopper is exhausted, has fully disclosed their constraints, or has passed the deferral budget, in which case SATU opens the full slate.
+
+The margin was selected from a sweep rather than from the single best-looking point. At the evaluation stage where this sweep was run, every value from `0` through `0.0009` produced the same TechnicalScore, `0.9633`; performance first fell at `0.001`. We chose `0.0005` because it lies in the middle of that stable plateau rather than at its edge. A later phrase-promotion improvement raised the final system from `0.9633` to `0.9672`; it did not change the definition of contention.
+
+| Relative margin |   Meaning | TechnicalScore change from the sweep reference |
+| --------------: | --------: | ---------------------------------------------: |
+|      `0–0.0009` | `0–0.09%` |               No change; score remained 0.9633 |
+|    **`0.0005`** | **0.05%** |                       **Shipped, mid-plateau** |
+|         `0.001` |     0.10% |                                        −0.0006 |
+|          `0.01` |     1.00% |                                        −0.0020 |
+|          `0.02` |     2.00% |                                        −0.0038 |
+|          `0.05` |     5.00% |                                        −0.0165 |
+
+At `0.0005`, the public run produced head widths `{1: 429, 2: 1, 10: 52}` across 482 turns. At `0.05`, the width spread to `{1: 228, 2: 99, 3: 36, 4: 20, 5: 3, 6: 2, 9: 2, 10: 35}`. The ranking is therefore usually decisive at the shipped 0.05% tolerance; it is not being forced to one product by a hardcoded constant.
+
+### Question Information Value
+
+For attribute `a`, SATU measures the distribution of its remaining catalog values with Shannon entropy:
+
+```text
+p(v|a) = weight(v,a) / Σᵤ weight(u,a)
+H(a)   = −Σᵥ p(v|a)·log₂ p(v|a)
+```
+
+The question score is:
+
+```text
+Q(a) = Coverage(a) · H(a) · 0.35^heard(a)
+```
+
+`Coverage(a)` is the weighted share of up to 150 live products that provide a value for the attribute. Entropy rewards a useful split: an attribute has little value if every product gives the same answer. The decay term reduces repeated questions about an attribute already discussed. Refused, remembered-refused, and temporarily avoided attributes are assigned no question score.
+
+SATU asks the highest-scoring specific attribute only if its coverage is at least 20% of the wildcard question's union coverage; otherwise it falls back to an open question. It emits no question when the shopper is fully exhausted or when no later turn can use the answer.
+
+### Decision Readiness
+
+SATU computes a bounded turn-level readiness value:
+
+```text
+Dₜ = clip(0.7·Currentₜ + 0.3·Dₜ₋₁, 0, 1)
+```
+
+`Currentₜ` increases with a recognized category, new typed constraints, decisive attributes, urgency, a small candidate pool, and a current pivot. It decreases with a large pool, many previous contenders, browsing without a new constraint, refusals, idle turns, and exhaustion.
+
+The 0.7/0.3 split makes new evidence dominant while retaining some conversational continuity. A decisive correction can move readiness quickly, while the 0.3 prior prevents one vague turn from erasing the session's accumulated direction. Values at or above `0.7` are reported as precision-ready; values below `0.3` are discovery-leaning.
+
+For accuracy, readiness is currently a **trace and explanation signal**, not an active ranking weight. Its steering switch ships off because the full sweep changed zero policy decisions: readiness was correlated with evidence already present in the discovery and precision scores. We retain the value because it explains how decision state evolves without claiming an evaluation gain it did not produce.
+
 ## Architecture
 
 ```text
@@ -165,19 +287,19 @@ Specific phrases found in the catalog can promote candidates after the base rank
 
 ## Dynamic Product Exposure
 
-SATU treats a slate as a commitment. It does not fill ten positions merely because ten are available.
-
-Products within `0.0005` of the leader may be exposed together. Candidates that do not meet that threshold are placed at rank 11 or below instead of filling ranks 2–10. This preserves those positions for candidates that later evidence may promote.
+SATU treats a slate as a commitment. It does not fill ten positions merely because ten are available. The exact 0.05% contention rule above determines the committed head. Products outside that band remain unshown instead of being used to fill ranks 2–10, preserving them for reranking after new evidence arrives.
 
 Previously shown products are removed. If the evaluator continued after they were shown, they are proven non-targets. Before this rule, repeats represented 62.9% of impressions on the hardest test set.
 
-| Strategy          |      Score |        MRR |     MTTC | Avg. shown |
-| ----------------- | ---------: | ---------: | -------: | ---------: |
-| **Dynamic slate** | **0.9672** | **0.9750** |     2.27 |       1.74 |
-| Tie margin 0.01   |     0.9641 |     0.9617 |     2.22 |       1.77 |
-| Tie margin 0.05   |     0.9441 |     0.8825 |     2.03 |       2.20 |
-| Tie margin 0.25   |     0.8984 |     0.7045 |     1.65 |       6.53 |
-| Always show ten   |     0.8946 |     0.6901 | **1.62** |       9.84 |
+The final end-to-end ablation, after phrase promotion was added, produced:
+
+| Strategy                  |      Relative margin |      Score |        MRR |     MTTC | Avg. shown |
+| ------------------------- | -------------------: | ---------: | ---------: | -------: | ---------: |
+| **Shipped dynamic slate** | **`0.0005` = 0.05%** | **0.9672** | **0.9750** |     2.27 |       1.74 |
+| Wider contention          |          `0.01` = 1% |     0.9641 |     0.9617 |     2.22 |       1.77 |
+| Wider contention          |          `0.05` = 5% |     0.9441 |     0.8825 |     2.03 |       2.20 |
+| Wider contention          |         `0.25` = 25% |     0.8984 |     0.7045 |     1.65 |       6.53 |
+| Always show ten           |       Not applicable |     0.8946 |     0.6901 | **1.62** |       9.84 |
 
 Always showing ten reaches the target slightly earlier, but frequently buries it. Dynamic exposure gives up a small amount of MTTC to gain substantially more MRR and total score.
 

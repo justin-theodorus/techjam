@@ -33,11 +33,14 @@ The evaluator makes this a sequential decision problem. A session ends when the 
 
 SATU balances coverage, precision, and speed.
 
+We also designed SATU to be realistic beyond the benchmark: fast enough for an interactive storefront, inexpensive to operate, explainable, and able to degrade safely without an external model or hosted retrieval service.
+
 ## How SATU Addresses It
 
 | Shopping challenge | SATU's response | Why it matters |
 | --- | --- | --- |
-| Different shoppers need different interactions | Classifies buying, browsing, boundary, and intent-override behaviour | A browser can explore sooner, while a focused buyer keeps narrowing |
+| The shopper's needs evolve during a session | Recomputes conversation policy, slate width, and question value every turn | The system can move from discovery to precision, recovery, or coverage as evidence changes |
+| Buying and browsing reveal information at different rates | Uses intent as a conversation-policy signal while sharing the measured best retriever | A browser can explore sooner without duplicating retrieval logic that did not improve results |
 | Preferences accumulate and change | Stores typed slots and applies targeted erasure when a preference is corrected | Preserves valid context without keeping contradictions |
 | Large result sets waste ranking positions | Filters by category, reranks candidates, and reveals only near-tied leaders | Protects precision while retaining strong options for later turns |
 | Generic questions add friction | Selects the unanswered attribute with the highest expected information value | Each turn reduces uncertainty efficiently |
@@ -60,6 +63,32 @@ At startup, SATU builds in-memory indexes for the frozen 50,000-product catalog.
 5. decides how many products to reveal
 6. decides whether to ask a question and, if so, selects the most informative one
 7. records the outcome for the next turn
+
+### Self-Evolving Dynamic Control
+
+“Self-evolving” means SATU's decision state evolves throughout the conversation; it does not mean that the model retrains itself. After every shopper response, SATU updates its slots, refusals, shown products, stagnation count, candidate-pool shape, and turn-level readiness. It then scores six competing policies:
+
+| Policy | When it becomes useful |
+| --- | --- |
+| Discovery | The request is broad or underspecified |
+| Precision | Concrete constraints support a narrow recommendation |
+| Recovery | A pivot or failed ordering disproves earlier assumptions |
+| Boundary | The shopper refuses a dimension |
+| Stagnation | Repeated answers add no new information |
+| Coverage | Few useful turns remain or the shopper is finished |
+
+The winning policy coordinates two dynamic controls:
+
+- **Product control:** how many recommendations to expose
+- **Question control:** whether to ask, what attribute to ask about, or when to stop
+
+SATU also reports a bounded readiness trace:
+
+```text
+Dₜ = clip(0.7 × current evidence + 0.3 × Dₜ₋₁, 0, 1)
+```
+
+New evidence dominates, while 30% of the previous state provides continuity. Readiness is currently used for traceability rather than active steering because enabling its steering term changed zero policy decisions in evaluation; the active policies already read the same evidence directly.
 
 ### Hybrid Retrieval
 
@@ -91,21 +120,38 @@ Cross-session memory retains decayed refusal and category signals at `0.7` per v
 
 ### Deferred Commitment
 
-SATU does not automatically fill all ten result positions. Products within `0.0005` of the leading score may be shown; other candidates are held at rank 11 or below so later information can promote them.
+SATU does not automatically fill all ten result positions. It counts the products whose blended scores fall within a relative margin of the leader:
 
-| Slate strategy | Score | MRR | MTTC | Avg. shown |
-| --- | ---: | ---: | ---: | ---: |
-| **SATU dynamic slate** | **0.9672** | **0.9750** | 2.27 | 1.74 |
-| Tie margin 0.01 | 0.9641 | 0.9617 | 2.22 | 1.77 |
-| Tie margin 0.05 | 0.9441 | 0.8825 | 2.03 | 2.20 |
-| Tie margin 0.25 | 0.8984 | 0.7045 | 1.65 | 6.53 |
-| Show all ten | 0.8946 | 0.6901 | **1.62** | 9.84 |
+```text
+contention = count(score ≥ best score × (1 − margin))
+```
+
+The shipped margin is `0.0005`, which means **0.05%**, not 0.5% or 5%. If the best score is `1.2000`, another product must score at least `1.1994` to be exposed with it. Products outside the band remain below the visible slate so later evidence can promote them.
+
+The value was selected from a stable sweep: margins from `0` to `0.0009` produced the same 0.9633 score at the calibration stage, while performance first fell at `0.001`. We chose `0.0005` because it sits in the middle of that plateau. A later phrase-promotion improvement raised the complete system to 0.9672.
+
+| Slate strategy | Relative margin | Score | MRR | MTTC | Avg. shown |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **SATU dynamic slate** | **`0.0005` = 0.05%** | **0.9672** | **0.9750** | 2.27 | 1.74 |
+| Wider contention | `0.01` = 1% | 0.9641 | 0.9617 | 2.22 | 1.77 |
+| Wider contention | `0.05` = 5% | 0.9441 | 0.8825 | 2.03 | 2.20 |
+| Wider contention | `0.25` = 25% | 0.8984 | 0.7045 | 1.65 | 6.53 |
+| Show all ten | Not applicable | 0.8946 | 0.6901 | **1.62** | 9.84 |
 
 Wider slates slightly reduce conversion time, but MRR falls much faster. Dynamic slates balance finding the product with ranking it correctly.
 
 ### Informative Questions
 
 Nine attributes compete based on how evenly they divide the remaining candidates, how often they occur, and whether the shopper has answered them. Options come from products still under consideration.
+
+For each attribute, SATU calculates Shannon entropy and combines it with catalog coverage and repeat decay:
+
+```text
+H(attribute) = −Σ p(value) × log₂ p(value)
+question value = coverage × H(attribute) × 0.35^times_heard
+```
+
+High entropy means the answers divide the remaining products into useful groups. An attribute scores poorly if few candidates contain it, every candidate has the same value, or the shopper has already discussed it repeatedly.
 
 Instead of asking “Do you have a material preference?”, SATU can ask “Leather, nylon, or PU leather?”
 
@@ -117,11 +163,29 @@ Six behaviours compete on each turn: discovery, precision, recovery, boundary, s
 
 The recovery trigger fires on 2.1% of public turns and 46.4% of turns in the hardest test set: mostly inactive when the primary ranking works, but active when observed results show that it does not.
 
+### Buying and Browsing
+
+The public sessions show a difference in information timing rather than a permanent difference in retrieval needs.
+
+| Intent | Turn 1 constraints | Turn 2 | Turn 3 | Turn 4 |
+| --- | ---: | ---: | ---: | ---: |
+| Buying | 1.00 | 3.00 | 4.00 | 4.00 |
+| Browsing | 0.00 | 2.00 | 4.00 | 4.00 |
+
+Buying starts one constraint ahead, but the two intents contain the same mean information from turn 3 onward. That is why intent changes SATU's conversational stance rather than selecting a separate retriever. Five attempts to differentiate retrieval weights by intent were neutral or negative. The final results support this choice: both intents reach 100% HitRate@10, with MRR of 0.967 for buying and 0.970 for browsing.
+
 ---
 
 ## Evaluation
 
 We ran the organizer's evaluator across all 200 public sessions.
+
+```text
+TechnicalScore = 0.50 × HitRate@10 + 0.30 × MRR + 0.20 × Efficiency
+Efficiency     = clip((11 − MTTC) / 10, 0, 1)
+```
+
+This formula makes the trade-off explicit: a wider slate can reduce MTTC but still lose overall if it pushes the correct product to a lower rank.
 
 | Scenario | Sessions | HitRate@10 | MRR | MTTC | Score |
 | --- | ---: | ---: | ---: | ---: | ---: |
