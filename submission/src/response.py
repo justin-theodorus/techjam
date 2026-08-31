@@ -137,7 +137,7 @@ def _acknowledge(
 ) -> str:
     """Returns what the agent understood from this turn."""
     if parsed.pivot:
-        replacing = _listed(parsed.constraints)
+        replacing = _labelled(state, parsed.constraints)
         dropped = _listed(_distinct(state.superseded, parsed.constraints))
         if replacing and dropped:
             return _stopped(f"Understood, {replacing} instead of {dropped}")
@@ -162,7 +162,7 @@ def _acknowledge(
         return "Thanks, I think I have what I need."
 
     if parsed.constraints:
-        return _stopped(f"Got it, {_listed(parsed.constraints)}")
+        return _stopped(f"Got it, {_labelled(state, parsed.constraints)}")
 
     if state.turn <= 1 and state.category:
         return f"Happy to help you find {state.category.lower()}."
@@ -335,6 +335,8 @@ def _choices(options: tuple[str, ...]) -> str:
 
 def _label(attribute: str) -> str:
     """Returns what a shopper would call this attribute."""
+    if not attribute:
+        return ""
     return LABELS.get(attribute, attribute.replace("_", " "))
 
 
@@ -367,6 +369,44 @@ def _distinct(
 def _overlapping(left: str, right: str) -> bool:
     """Returns whether two constraints are saying the same thing."""
     return left in right or right in left
+
+
+def _labelled(state: dialogue.SessionState, values: tuple[str, ...]) -> str:
+    """Returns the arriving constraints, each named by the attribute it was
+    filed under.
+
+    The acknowledgement is the customer's only sight of how they were
+    understood, and the value alone does not show it: "leather" could have been
+    read as a material or as a brand. "material: leather" says which, so a
+    misfiling is visible on the turn it happens rather than three turns later
+    when the slate is wrong.
+
+    A value that already carries its own prefix keeps it and gains no second
+    one, and values sharing an attribute are named once rather than each.
+    """
+    # Every slot, not just this turn's: a constraint the customer restates
+    # keeps the turn it first arrived on, and it is filed under the same
+    # attribute either way.
+    typed = {slot.value: slot.attribute for slot in state.slots}
+    rows: list[tuple[str, str]] = []
+    for value in values[:MAX_LISTED]:
+        short = _short(value)
+        if not short:
+            continue
+        # Its own prefix is the customer's word for it, and outranks ours.
+        attribute = "" if ":" in short else _label(typed.get(value, ""))
+        rows.append((attribute, short))
+    if not rows:
+        return ""
+    if len(rows) > 1 and len({attribute for attribute, _ in rows}) == 1:
+        attribute = rows[0][0]
+        joined = " and ".join(short for _, short in rows)
+        return f"{attribute}: {joined}" if attribute else joined
+    named = [f"{a}: {v}" if a else v for a, v in rows]
+    if len(named) == 1:
+        return named[0]
+    joiner = "; " if any(":" in value for value in named) else " and "
+    return joiner.join(named)
 
 
 def _listed(values: tuple[str, ...]) -> str:

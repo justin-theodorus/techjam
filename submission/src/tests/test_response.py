@@ -5,6 +5,7 @@ import unittest
 from submission.src import dialogue
 from submission.src import policy
 from submission.src import response
+from submission.src import slots
 
 
 def reply(state, parsed, contenders=1, head=1, served=10, asked="other",
@@ -363,3 +364,66 @@ class PunctuationTest(unittest.TestCase):
         )
 
         self.assertNotIn("....", text)
+
+
+class AttributeLabelTest(unittest.TestCase):
+    """The acknowledgement names the attribute each constraint was filed
+    under, so a misfiling is visible on the turn it happens.
+
+    "leather" alone does not show whether it was read as a material or a
+    brand; "material: leather" does.
+    """
+
+    def _state(self, slots):
+        return dialogue.SessionState(
+            turn=1, constraints=tuple(s.value for s in slots), slots=tuple(slots)
+        )
+
+    def test_a_constraint_is_named_by_its_attribute(self) -> None:
+        slot = slots.Slot("material", "leather", 1)
+        text = reply(self._state([slot]),
+                     dialogue.ParsedTurn(constraints=("leather",)),
+                     head=1, served=1)
+
+        self.assertIn("material: leather", text)
+
+    def test_a_value_with_its_own_prefix_gains_no_second_one(self) -> None:
+        slot = slots.Slot("feature", "Material:alloy", 1)
+        text = reply(self._state([slot]),
+                     dialogue.ParsedTurn(constraints=("Material:alloy",)),
+                     head=1, served=1)
+
+        self.assertIn("material: alloy", text)
+        self.assertNotIn("feature: material", text)
+
+    def test_values_sharing_an_attribute_are_named_once(self) -> None:
+        pair = [slots.Slot("feature", "water resistant", 1),
+                slots.Slot("feature", "3 year battery", 1)]
+        text = reply(self._state(pair),
+                     dialogue.ParsedTurn(
+                         constraints=("water resistant", "3 year battery")),
+                     head=1, served=1)
+
+        self.assertIn("feature: water resistant and 3 year battery", text)
+        self.assertEqual(text.count("feature:"), 1)
+
+    def test_a_restated_constraint_still_finds_its_attribute(self) -> None:
+        """A repeat keeps the turn it first arrived on, so the lookup must
+        span every slot rather than only this turn's."""
+        old = slots.Slot("feature", "stainless steel band", 1)
+        new = slots.Slot("feature", "day / date indicator", 3)
+        state = dialogue.SessionState(
+            turn=3, constraints=(old.value, new.value), slots=(old, new))
+        text = reply(state, dialogue.ParsedTurn(
+            constraints=("day / date indicator", "stainless steel band")),
+            head=1, served=1)
+
+        self.assertIn("feature: day / date indicator and stainless steel band",
+                      text)
+
+    def test_an_unclassified_constraint_is_still_spoken(self) -> None:
+        text = reply(dialogue.SessionState(turn=1, constraints=("leather",)),
+                     dialogue.ParsedTurn(constraints=("leather",)),
+                     head=1, served=1)
+
+        self.assertIn("leather", text)
