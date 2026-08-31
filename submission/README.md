@@ -136,6 +136,63 @@ closure`) 431 times, three of which reach the public set. **The measurement says
 the win is holding the term out, not subtracting it:** the whole mechanism is
 worth 0.215 on the set that tests it, the subtraction inside it 0.014.
 
+## What we spent score on
+
+One component ships **live at a measured cost**, and it is the only one. It is
+listed here rather than in the limitations below because it is a choice rather
+than a shortfall.
+
+### Why the agent does not just ask `"other"`
+
+`customer_reply()` matches the probe like this:
+
+```python
+if value not in disclosed and (attribute == "other" or classify_constraint(value) == attribute)
+```
+
+`attribute == "other"` short-circuits the type check, so the wildcard's match
+set is a strict **superset** of every named attribute's. "Anything else?"
+returns any two undisclosed constraints; "what colour?" returns only the ones
+that classify as colour, and most cards hold none. No named attribute can
+extract more disclosure than the wildcard, ever. It is a dominant strategy by
+construction.
+
+So the score-maximising agent asks `"other"` on every turn of every session,
+and `probe.SPECIFIC_ARMS = False` does exactly that. Measured across the public
+set and the 23 frozen session sets:
+
+| | with specific arms | wildcard only |
+|---|---|---|
+| public 200 | **0.9633** | 0.9622 |
+| mean over 24 sets | 0.8981 | **0.9002** |
+| questions that name a real attribute | 10,576 of 14,016 | **0** |
+| questions that are "anything else?" | 3,440 | 11,332 |
+
+**The wildcard is worth +0.0020 on average, and we do not take it.**
+
+The cost is not evenly spread, and the sets where it bites are worth naming:
+`compound_hard` −0.0242, `thin_cards` −0.0229, `returning_shopper` −0.0177,
+`unpopular_targets` −0.0133. It is also not uniformly a cost — specific arms
+*win* on 13 of the 24 sets, most clearly on `unrelated_pivot` (+0.0145) and
+`silent_customer` (+0.0101), where a pointed question restarts a conversation
+that the wildcard lets drift.
+
+### What it buys
+
+Turn the switch off and the agent asks `"anything else?"` **eleven thousand
+times and asks nothing else, ever** — the same sentence, up to ten times per
+session, to every customer. Turn it on and roughly three questions in four
+name something real: material, feature, style, size, colour, each chosen by
+entropy over the products still in contention, each offering answer options
+drawn from those products.
+
+The brief names *"proactive structured clarification"* and *"adaptive
+clarification and question-value estimation"* as goals in their own right, and
+a shopper cannot answer "anything else?" any better on the ninth asking than
+the first. Two thousandths of a point is what that costs, it is measured on 24
+independent session sets rather than asserted, and the switch is one line for
+anyone who would rather have the score.
+
 ## Limitations, and things that did not work
 
 Five components were built, measured and **shipped switched off**. Each keeps a
@@ -262,6 +319,8 @@ make risk                                          # target-distribution surface
 make paraphrase                                    # wording surface
 make sessions                                      # the 22 frozen synthetic sets
 make deviations                                    # every component with a live switch, re-swept
+#                                                  # the wildcard trade, 24 sets:
+#                                                  #   probe.SPECIFIC_ARMS False vs True
 make dense                                         # the Tier 1 ablation, switched on
 make llm                                           # the Tier 2 ablation; needs a key
 make test                                          # 335 tests
