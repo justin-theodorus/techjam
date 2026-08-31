@@ -27,6 +27,44 @@ credential. Per-turn latency is p50 0.95 ms, p95 3.19 ms over 453 turns.
 
 ## How it works
 
+```mermaid
+flowchart TD
+    MSG(["customer message"])
+    MSG --> UND["understand<br/>template, then dialogue cues, then catalog vocabulary"]
+    UND --> DLG["dialogue<br/>typed slots, refusals, pivots, what has been shown"]
+    DLG --> POL["policy<br/>names one of six dialogue policies for this turn"]
+    POL --> RTE["routing<br/>blend weight, deferral budget, how deep to reach"]
+    RTE --> ORC["orchestrate<br/>re-order only if this session already refuted the head"]
+
+    ORC --> F1["filter to the coarse bucket<br/>50,000 down to a median of 182, recall@100 = 0.990"]
+    F1 --> F2["blend BM25 with the popularity prior<br/>minus whatever the customer refused"]
+    F2 --> F3["promote by phrase evidence<br/>over the top 20, before the head is chosen"]
+    F3 --> F4["drop what this session has already shown"]
+    F4 --> F5["commit only what the ranking can separate<br/>withheld slots stay empty"]
+    F5 --> F6["rerank the served slate"]
+
+    F6 --> PRB["probe<br/>the question with the most expected disclosure"]
+    PRB --> RSP["response<br/>composed from session state, zero tokens, no network"]
+    RSP --> OUT(["message + ask_attribute + up to 10 parent_asin"])
+
+    subgraph once["built once at construction, never per session"]
+        C1["50,000 products in 1,115 coarse buckets"]
+        C2["BM25 postings over title + features"]
+        C3["popularity prior, log1p of review count"]
+        C4["whole-phrase index, 89.8% unique to one product"]
+        C5["slot taxonomy and category resolver"]
+    end
+
+    once -.-> F1
+    MEM["per-shopper memory"] -.->|"only when a caller names a shopper"| DLG
+    DEN["dense retrieval tier"] -.->|"measured, ships off"| F2
+    LLM["model rerank tier"] -.->|"USE_LLM=1, ships off"| F6
+```
+
+Everything expensive happens once, at construction: 800 private sessions
+re-parsing 50,000 JSONL records would blow any timeout. A turn allocates state
+and reads indexes, and nothing else.
+
 Turn 1 is never content-free: every opening message names a coarse product
 category, and filtering the catalog to that bucket cuts 50,000 products to a
 median of 182 at recall@100 = 0.990. Inside the bucket the agent blends lexical
