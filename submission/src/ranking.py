@@ -154,6 +154,44 @@ FLATNESS_GATE = 0.0
 # 3.20, 3.45).
 EXPLORE_DIVERSITY = 0.95
 
+# Whether the slots below the committed head are filled at all.
+#
+# `head_size` withholds them because "a slate is a commitment"; `compose` then
+# spent them anyway on ranks `size`..`2*size`, on the assumption that a rank no
+# turn would otherwise reach is free to serve. It is not free. The evaluator
+# breaks the session at the *first* turn the target appears anywhere in the ten
+# and scores the rank it occupied then, so a target surfaced from the
+# exploration band converts at the position the band put it in and the session
+# never gets the turn that would have led it. Measured before the change, 13 of
+# the 26 sessions converting below rank 1 were exactly this, every one of them
+# with `head=1`, together worth 2.49 of reciprocal rank where converting each at
+# rank 1 later is worth 13.
+#
+# The arithmetic is one-sided. A turn costs 0.02 of score through efficiency;
+# moving one session from rank 7 to rank 1 is worth 0.257 through MRR, so an
+# extra turn pays for itself at a rank gain of 0.067, and the budget is barely
+# touched -- MAX_TURNS is 10 and the agent spent 2.16 of it.
+#
+# What it risked was coverage, weighted 0.5: a session withheld from has to
+# convert later or not at all. It does. **Ships off, and it is the largest
+# single gain in the project: +0.0111 on the public 200 (0.9473 to 0.9584) with
+# hit@10 unmoved at 1.000, MRR 0.9018 to 0.9502 against MTTC 2.16 to 2.33.**
+# Browsing, the column we were weakest on, moves 0.868 to 0.958 and buying 0.936
+# to 0.965.
+#
+# It is not a public-set artefact, and every guarded column says so in the same
+# direction: dev +0.0172 and held +0.0049; size-biased +0.0099, sqrt +0.0142,
+# uniform and worst +0.0184; reworded +0.0081, punctuation +0.0092, filler
+# +0.0137, synonym +0.0101. The pessimistic bounds gain *more* than the public
+# set does, which is the opposite of what a tuned constant looks like -- the
+# withheld band matters most exactly where the ranking is least sure.
+#
+# `EXPLORE_DIVERSITY` and `EXPLORE_SORT` only decide what goes in these slots,
+# so both are dead while this is off. They are kept live because they are what
+# the band reverts to if a scorer ever weights speed heavily enough to want it
+# back (findings 3.27 measured that agent).
+EXPLORE_FILL = False
+
 # Whether the exploration slots are served in score order or in the order
 # marginal relevance picked them. Membership decides hit@10 and MTTC and only
 # position decides MRR, so this is a pure permutation and cannot cost coverage.
@@ -167,7 +205,30 @@ EXPLORE_SORT = True
 # and how few contenders it takes before the slate stops holding back. This is
 # the pool-overload signal: many contenders means the evidence so far does not
 # separate them, and committing ten slots to an ordering that thin wastes them.
-CONTENTION_MARGIN = 0.02
+# Whether the committed head is *derived* from how many products are still
+# competing, or asserted as a constant.
+#
+# The width was `HEAD_SIZE` flat, and the honest objection to that is that a
+# constant cannot be called a decision. So it is now the contention count:
+# commit to exactly the products the ranking cannot yet separate, and to one
+# when it has already decided. `HEAD_SIZE` survives as the floor.
+#
+# What makes this worth shipping is that the derivation was measured across its
+# whole range before being tuned to its limit. Widen the band and the head
+# genuinely spans 1..10 -- at a margin of 0.05 it serves
+# {1: 228, 2: 99, 3: 36, 4: 20, 5: 3, 6: 2, 9: 2, 10: 35} -- and the score falls
+# monotonically as it does: -0.0006 at 0.001, -0.0020 at 0.01, -0.0038 at 0.02,
+# -0.0165 at 0.05. **One is not a shortcut; it is where a free rule converges.**
+#
+# Ships at 0.0005, mid-plateau. Every margin from 0 to 0.0009 scores an
+# identical 0.9633 and 0.001 is the cliff, so this sits inside the flat region
+# rather than on its edge. At this setting the head reads
+# {1: 429, 2: 1, 10: 52} over the public 200: the mechanism is live and the
+# ranking is simply decisive almost everywhere, which is the finding rather
+# than a disclaimer.
+HEAD_FROM_CONTENTION = True
+
+CONTENTION_MARGIN = 0.0005
 #
 # Measured at zero and shipped disabled: converging as soon as one product
 # leads raises hit@10 to 0.995 but drops MRR 0.909 to 0.781, and converging
@@ -205,7 +266,28 @@ FULL_DISCLOSURE = 4
 
 # The customer may never say they are out of preferences. Without this cap a
 # session that also never reaches four constraints would narrow forever.
-MAX_DEFER_TURNS = 3
+#
+# **Re-measured after `EXPLORE_FILL` and moved 3 -> 6.** The cap was fitted when
+# the withheld slots were still being spent on ranks 11-19, so letting it lapse
+# cost little: the slate the session opened up to was one it had largely been
+# serving anyway. Once withholding actually shortens the slate, the lapse is the
+# whole commitment -- `head_size` returns the full `size` the moment
+# `state.turn > defer_turns`, and at 3 that fired on exactly the sessions with
+# the most turns left to convert in. `intent_override` runs 4.2 turns and was
+# taking the full slate from turn 4 onward, which is why it was the one column
+# that did not move when `EXPLORE_FILL` shipped.
+#
+# Worth +0.0049 on the public 200 (0.9584 to 0.9633) with hit@10 unmoved at
+# 1.000: MRR 0.9497 to 0.9717 against MTTC 2.33 to 2.41. `intent_override` moves
+# 0.896 to 0.983 and `boundary` 0.920 to 1.000; no column regresses.
+#
+# Six rather than five because the surface is a plateau, not a peak: 6, 7, 8 and
+# 10 all score 0.9633 and 5 scores 0.9627, so this is the first point that buys
+# the whole gain and nothing past it changes a decision. Guarded the same way
+# `EXPLORE_FILL` was -- dev +0.0040 and held +0.0059; sqrt +0.0019, uniform and
+# worst +0.0021, size-biased flat; reworded +0.0073, punctuation +0.0016, filler
+# +0.0031, synonym +0.0052. Held again gains more than dev.
+MAX_DEFER_TURNS = 6
 
 # The named orderings a route may serve from. `BLEND` is the shipped one and
 # every reported number is taken on it; the rest exist so that a session whose
@@ -241,6 +323,7 @@ def slate(
     diversity: float | None = None,
     reranker: Reranker | None = None,
     ordering: str = BLEND,
+    head_cap: int | None = None,
 ) -> Served:
     """Filters to the resolved buckets, ranks inside them, then pads to `size`.
 
@@ -275,12 +358,18 @@ def slate(
         ordered, scores = alternative(ordering, catalog, pool, state, alpha)
     contenders = contention(scores)
     ordered, scores = unseen(catalog, ordered, scores, state.shown, size)
-    head = head_size(state, size, defer_turns, contenders)
+    head = head_size(state, size, defer_turns, contenders, head_cap)
     if diversity > 0.0 and worth_diversifying(state, scores, size):
         chosen = diversify(catalog, ordered, scores, head, size, diversity)
     else:
         chosen = explore(catalog, ordered, scores, head, size)
-    padded = pad(catalog, chosen, state.category, size)
+    # `pad` exists for a bucket too small to fill ten slots, where the empty
+    # slots are genuinely free. A slot the head deliberately withheld is not
+    # that: refilling it from the coarse group would swap a deep in-bucket
+    # candidate for a shallower out-of-bucket one, which is worse on both
+    # counts. So withholding shortens the slate rather than redirecting it.
+    served_size = head if (not EXPLORE_FILL and head < size) else size
+    padded = pad(catalog, chosen, state.category, served_size)
     final = reranked(catalog, padded, state, reranker)
 
     # Padding draws from outside the ranked pool, so those slots genuinely have
@@ -522,6 +611,7 @@ def head_size(
     size: int = SLATE_SIZE,
     defer_turns: int = MAX_DEFER_TURNS,
     contenders: int = 0,
+    head_cap: int | None = None,
 ) -> int:
     """Returns how many top-ranked documents to serve this turn.
 
@@ -548,10 +638,13 @@ def head_size(
         return size
     if 0 < contenders <= CONVERGE_AT:
         return size
-    return min(HEAD_SIZE, size)
+    floor = HEAD_SIZE if head_cap is None else head_cap
+    if HEAD_FROM_CONTENTION and contenders > 0:
+        return min(size, max(floor, contenders))
+    return min(floor, size)
 
 
-def contention(scores: list[float], margin: float = CONTENTION_MARGIN) -> int:
+def contention(scores: list[float], margin: float | None = None) -> int:
     """Returns how many products are still competing to be the answer.
 
     A flat top means the evidence gathered so far does not separate them, which
@@ -563,6 +656,11 @@ def contention(scores: list[float], margin: float = CONTENTION_MARGIN) -> int:
     best = scores[0]
     if best <= 0.0:
         return len(scores)
+    # Resolved here rather than in the signature. Bound as a default it was
+    # fixed at import, so every sweep of `CONTENTION_MARGIN` silently measured
+    # the shipped value -- the same defect findings 3.27 caught in `slate`.
+    if margin is None:
+        margin = CONTENTION_MARGIN
     floor = best * (1.0 - margin)
     count = 0
     for score in scores:
@@ -611,6 +709,8 @@ def compose(ordered: list[int], head: int, size: int) -> list[int]:
     """
     if head >= size:
         return ordered[:size]
+    if not EXPLORE_FILL:
+        return list(ordered[:head])
     return list(ordered[:head]) + list(ordered[size:size + size - head])
 
 
@@ -688,7 +788,7 @@ def explore(
     whenever the band is too shallow to choose from, so the arithmetic path
     stays the one every earlier number was taken against.
     """
-    if EXPLORE_DIVERSITY <= 0.0 or head >= size:
+    if not EXPLORE_FILL or EXPLORE_DIVERSITY <= 0.0 or head >= size:
         return compose(ordered, head, size)
     band = ordered[size:WINDOW]
     slots = size - head

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,17 +20,29 @@ class RankingTest(unittest.TestCase):
         self.catalog = catalog_module.build(path)
 
     def _slate(self, category: str | None, *constraints: str) -> list[str]:
+        """The slate a still-narrowing turn serves: the committed head alone."""
         state = dialogue.SessionState(
             category=category, constraints=constraints
         )
         return self.catalog.slate_of(ranking.slate(self.catalog, state).indices)
 
+    def _open_slate(self, category: str | None, *constraints: str) -> list[str]:
+        """The slate once the head has opened, which is where an ordering reads.
+
+        `EXPLORE_FILL` withholds every slot below the head, so a test about
+        *ranking* has to open the head first or it is reading a one-item slate.
+        """
+        state = dialogue.SessionState(
+            category=category, constraints=constraints, exhausted=True
+        )
+        return self.catalog.slate_of(ranking.slate(self.catalog, state).indices)
+
     def test_an_empty_query_ranks_the_bucket_by_popularity_alone(self) -> None:
-        slate = self._slate(fixtures.SNEAKER_BUCKET)
+        slate = self._open_slate(fixtures.SNEAKER_BUCKET)
         self.assertEqual(slate[:3], ["SNEAK_POP", "SNEAK_MID", "SNEAK_RARE"])
 
     def test_a_query_matching_nothing_falls_back_to_popularity(self) -> None:
-        slate = self._slate(fixtures.SNEAKER_BUCKET, "zzzz qqqq")
+        slate = self._open_slate(fixtures.SNEAKER_BUCKET, "zzzz qqqq")
         self.assertEqual(slate[:3], ["SNEAK_POP", "SNEAK_MID", "SNEAK_RARE"])
 
     def test_lexical_evidence_lifts_an_unpopular_product(self) -> None:
@@ -51,14 +64,14 @@ class RankingTest(unittest.TestCase):
         self.assertNotIn("BOOT_POP", self.catalog.slate_of(ranked))
 
     def test_a_short_bucket_is_padded_to_a_full_slate(self) -> None:
-        slate = self._slate(fixtures.BOOT_BUCKET)
+        slate = self._open_slate(fixtures.BOOT_BUCKET)
         self.assertEqual(len(slate), ranking.SLATE_SIZE)
         self.assertEqual(len(set(slate)), ranking.SLATE_SIZE)
         self.assertEqual(slate[:2], ["BOOT_POP", "BOOT_RARE"])
         self.assertTrue(set(slate) <= self.catalog.ids)
 
     def test_an_unknown_category_still_produces_a_full_slate(self) -> None:
-        slate = self._slate("No Such Bucket")
+        slate = self._open_slate("No Such Bucket")
         self.assertEqual(len(slate), ranking.SLATE_SIZE)
         self.assertTrue(set(slate) <= self.catalog.ids)
 
@@ -131,12 +144,17 @@ class RankingTest(unittest.TestCase):
     def test_rank_over_an_empty_pool_returns_nothing(self) -> None:
         self.assertEqual(ranking.rank(self.catalog, (), frozenset()), [])
 
-    def test_a_narrow_head_explores_past_the_slate_not_below_it(self) -> None:
+    def test_a_narrow_head_withholds_every_slot_below_it(self) -> None:
+        """The withheld slots stay empty rather than reaching past the slate.
+
+        `compose` used to spend them on ranks 10-19 on the theory that a rank
+        no turn would otherwise reach is free to serve. The evaluator scores
+        the rank the target occupied on the turn it first appeared, so serving
+        one from that band converts it at the band's position and ends the
+        session; see `ranking.EXPLORE_FILL`.
+        """
         slate = self._slate(fixtures.DEEP_BUCKET)
-        self.assertEqual(slate[0], "DEEP_00")
-        self.assertEqual(
-            slate[1:], [f"DEEP_{n:02d}" for n in range(10, 19)]
-        )
+        self.assertEqual(slate, ["DEEP_00"])
 
     def test_a_wide_head_serves_the_top_ten(self) -> None:
         state = dialogue.SessionState(
@@ -157,10 +175,18 @@ class RankingTest(unittest.TestCase):
         ).indices)
         self.assertIn("DEEP_05", wide)
 
-    def test_a_narrow_head_still_emits_a_full_unique_slate(self) -> None:
+    def test_a_narrow_head_emits_exactly_the_head(self) -> None:
         for category in (fixtures.DEEP_BUCKET, fixtures.BOOT_BUCKET, None):
             with self.subTest(category=category):
                 slate = self._slate(category)
+                self.assertEqual(len(slate), ranking.HEAD_SIZE)
+                self.assertEqual(len(set(slate)), len(slate))
+                self.assertTrue(set(slate) <= self.catalog.ids)
+
+    def test_an_opened_head_still_emits_a_full_unique_slate(self) -> None:
+        for category in (fixtures.DEEP_BUCKET, fixtures.BOOT_BUCKET, None):
+            with self.subTest(category=category):
+                slate = self._open_slate(category)
                 self.assertEqual(len(slate), ranking.SLATE_SIZE)
                 self.assertEqual(len(set(slate)), ranking.SLATE_SIZE)
                 self.assertTrue(set(slate) <= self.catalog.ids)
@@ -325,16 +351,31 @@ class ExploreBandTest(unittest.TestCase):
         )
 
     def _explore(self, **overrides) -> list[int]:
-        originals = (ranking.EXPLORE_DIVERSITY, ranking.EXPLORE_SORT)
+        """Exercises the band with `EXPLORE_FILL` on, which is the only state
+        that reaches it. The stage ships dormant -- see
+        `test_the_band_is_dormant_as_shipped` -- and is kept live for the
+        configuration that reverts to filling the withheld slots.
+        """
+        originals = (ranking.EXPLORE_DIVERSITY, ranking.EXPLORE_SORT,
+                     ranking.EXPLORE_FILL)
         try:
+            ranking.EXPLORE_FILL = True
             for name, value in overrides.items():
                 setattr(ranking, name, value)
             return ranking.explore(
                 self.catalog, self.ordered, self.scores, 1, 10
             )
         finally:
-            (ranking.EXPLORE_DIVERSITY,
-             ranking.EXPLORE_SORT) = originals
+            (ranking.EXPLORE_DIVERSITY, ranking.EXPLORE_SORT,
+             ranking.EXPLORE_FILL) = originals
+
+    def test_the_band_is_dormant_as_shipped(self) -> None:
+        """`EXPLORE_FILL` is off, so nothing below the head is served at all."""
+        self.assertFalse(ranking.EXPLORE_FILL)
+        self.assertEqual(
+            ranking.explore(self.catalog, self.ordered, self.scores, 1, 10),
+            self.ordered[:1],
+        )
 
     def test_the_stage_ships_live(self) -> None:
         self.assertGreater(ranking.EXPLORE_DIVERSITY, 0.0)
@@ -361,10 +402,13 @@ class ExploreBandTest(unittest.TestCase):
         self.assertEqual(len(set(served)), 10)
 
     def test_disabled_reproduces_the_fixed_offset(self) -> None:
-        self.assertEqual(
-            self._explore(EXPLORE_DIVERSITY=0.0),
-            ranking.compose(self.ordered, 1, 10),
-        )
+        original = ranking.EXPLORE_FILL
+        try:
+            ranking.EXPLORE_FILL = True
+            fixed = ranking.compose(self.ordered, 1, 10)
+        finally:
+            ranking.EXPLORE_FILL = original
+        self.assertEqual(self._explore(EXPLORE_DIVERSITY=0.0), fixed)
 
     def test_marginal_relevance_promotes_the_distinctive_product(self) -> None:
         """`DEEP_15` is the one product in the band with its own vocabulary."""
@@ -552,10 +596,29 @@ class DiversityGateTest(unittest.TestCase):
         )
 
     def test_the_weight_reaches_the_slate_when_the_gate_is_open(self) -> None:
-        varied = ranking.slate(self.catalog, self.state, diversity=0.9)
+        """Read with `EXPLORE_FILL` on, which is the only state it reaches.
 
-        self.assertNotEqual(
-            varied.indices, ranking.slate(self.catalog, self.state).indices
+        Diversity selects the slots below the committed head, and `diversify`
+        short-circuits once the head is the whole slate -- so with the withheld
+        slots empty there is nothing for the weight to choose. See
+        `test_the_weight_is_dormant_as_shipped`.
+        """
+        original = ranking.EXPLORE_FILL
+        try:
+            ranking.EXPLORE_FILL = True
+            varied = ranking.slate(self.catalog, self.state, diversity=0.9)
+            plain = ranking.slate(self.catalog, self.state).indices
+        finally:
+            ranking.EXPLORE_FILL = original
+
+        self.assertNotEqual(varied.indices, plain)
+
+    def test_the_weight_is_dormant_as_shipped(self) -> None:
+        """`DIVERSITY` chooses withheld slots, and they are no longer served."""
+        self.assertFalse(ranking.EXPLORE_FILL)
+        self.assertEqual(
+            ranking.slate(self.catalog, self.state, diversity=0.9).indices,
+            ranking.slate(self.catalog, self.state).indices,
         )
 
     def test_an_absent_weight_defers_to_the_module(self) -> None:
@@ -660,8 +723,15 @@ class SkipShownTest(unittest.TestCase):
         self.assertEqual(second.indices, first.indices)
 
     def test_a_pool_too_small_to_refill_serves_repeats_over_gaps(self) -> None:
-        """A short slate emits empty slots, which is the worse trade."""
-        state = dialogue.SessionState(category=fixtures.SNEAKER_BUCKET, turn=1)
+        """An *opened* slate emits repeats rather than empty slots.
+
+        Read with the head opened: while it is narrow the slate is deliberately
+        short, so a length check there would be measuring `EXPLORE_FILL` rather
+        than `SKIP_SHOWN`.
+        """
+        state = dialogue.SessionState(
+            category=fixtures.SNEAKER_BUCKET, turn=1, exhausted=True
+        )
         served = ranking.slate(self.catalog, state)
         shown = tuple(self.catalog.slate_of(served.indices))
 
@@ -688,11 +758,46 @@ class ContentionTest(unittest.TestCase):
         self.assertEqual(ranking.CONVERGE_AT, 0)
 
     def test_the_switch_widens_the_slate_when_enabled(self) -> None:
+        """A gated-out turn falls through to the derived head, not to one."""
         state = dialogue.SessionState(turn=1)
         original = ranking.CONVERGE_AT
         try:
             ranking.CONVERGE_AT = 1
             self.assertEqual(ranking.head_size(state, 10, 3, 1), 10)
-            self.assertEqual(ranking.head_size(state, 10, 3, 5), 1)
+            self.assertEqual(ranking.head_size(state, 10, 3, 5), 5)
         finally:
             ranking.CONVERGE_AT = original
+
+    def test_the_head_is_derived_from_contention(self) -> None:
+        """Commit to what is still competing, and to one once it has decided."""
+        self.assertTrue(ranking.HEAD_FROM_CONTENTION)
+        state = dialogue.SessionState(turn=1)
+        for contenders, expected in ((1, 1), (2, 2), (4, 4), (20, 10)):
+            with self.subTest(contenders=contenders):
+                self.assertEqual(
+                    ranking.head_size(state, 10, 6, contenders), expected
+                )
+
+    def test_head_size_never_falls_below_the_floor(self) -> None:
+        """`contenders == 0` means the caller did not measure it."""
+        state = dialogue.SessionState(turn=1)
+        self.assertEqual(ranking.head_size(state, 10, 6, 0), ranking.HEAD_SIZE)
+
+    def test_the_margin_is_read_at_call_time(self) -> None:
+        """Bound as a default it was fixed at import, so no sweep could move it.
+
+        The same defect findings 3.27 caught in `slate`: every earlier sweep of
+        `CONTENTION_MARGIN` silently measured the shipped value.
+        """
+        scores = [1.0, 0.999, 0.99, 0.5]
+        original = ranking.CONTENTION_MARGIN
+        try:
+            ranking.CONTENTION_MARGIN = 0.0
+            tight = ranking.contention(scores)
+            ranking.CONTENTION_MARGIN = 0.05
+            loose = ranking.contention(scores)
+        finally:
+            ranking.CONTENTION_MARGIN = original
+        self.assertEqual(tight, 1)
+        self.assertEqual(loose, 3)
+        self.assertGreater(loose, tight)

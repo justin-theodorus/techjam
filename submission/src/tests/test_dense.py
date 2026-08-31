@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import pathlib
 import struct
 import tempfile
@@ -196,8 +197,12 @@ class ShippedNeutralityTest(unittest.TestCase):
             constraints=("100% Cotton", "relaxed straight leg trousers"),
             turn=2,
         )
-        off = ranking.slate(catalog, state, dense_weight=0.0)
-        on = ranking.slate(catalog, state, dense_weight=1.3)
+        # Read on an opened head: while it is narrow the slate is one item
+        # under `ranking.EXPLORE_FILL`, and a weight that reorders ten
+        # candidates cannot be seen in a slate of one.
+        opened = dataclasses.replace(state, exhausted=True)
+        off = ranking.slate(catalog, opened, dense_weight=0.0)
+        on = ranking.slate(catalog, opened, dense_weight=1.3)
         self.assertNotEqual(off.indices, on.indices)
 
     def test_reach_widens_the_pool_past_the_bucket(self) -> None:

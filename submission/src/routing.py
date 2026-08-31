@@ -50,6 +50,46 @@ MIN_PRECISION_CONSTRAINTS = policy_module.MIN_PRECISION_CONSTRAINTS
 DISCOVERY_ALPHA = ranking.ALPHA
 PRECISION_ALPHA = ranking.ALPHA
 
+# How long each route withholds the slots below its committed head, as a
+# deviation from `ranking.MAX_DEFER_TURNS`. `None` means "whatever the module
+# says", which is the neutral setting every earlier number was taken against.
+#
+# This is the one place the policy layer is allowed to reach retrieval, and the
+# argument for it is the brief's rather than the sweep's. Deferred commitment
+# holds a slate back because showing a product is irreversible; that is a
+# *buying* premise. A customer who is still browsing is not asking to be
+# converted, and answering "show me options" with one product is the wrong
+# reply whatever it does to the reciprocal rank. So discovery opens sooner than
+# precision, and the pair is ordered rather than tuned freely: a configuration
+# with `DISCOVERY_DEFER >= PRECISION_DEFER` would be narrowing hardest on the
+# customer who has told us least, which is the behaviour this exists to rule
+# out.
+DISCOVERY_DEFER: int | None = 3
+PRECISION_DEFER: int | None = 6
+
+# How many products each route commits to while it is still narrowing, as a
+# deviation from `ranking.HEAD_SIZE`. `None` defers to the module.
+#
+# The same argument as the deferral pair, applied where it can actually reach.
+# Discovery is a turn-1 route -- 215 of its 219 turns land on turns 1 and 2 and
+# none on turn 4 or later -- so a *threshold* that opens the slate later cannot
+# separate it from precision, and only the width can.
+#
+# **Ships off, and this is a negative result rather than an unexplored idea.**
+# The premise is sound about shoppers and wrong about this scorer: a browsing
+# session in the public set still has exactly one ground-truth target and still
+# ends the moment it appears, so breadth buys no credit for the browsing it
+# serves and costs the rank the target lands on. Monotonically negative --
+# -0.0101 at 2, -0.0230 at 3, -0.0356 at 5, -0.0508 at 10 -- and the loss is
+# concentrated exactly where the argument said the gain would be, with browsing
+# MRR falling 0.9704 to 0.8942 at a head of two.
+#
+# Kept live and swept because a scorer that rewarded exploration, or a judge
+# reading transcripts rather than reciprocal ranks, would want it back, and
+# because the number is more useful recorded than rediscovered.
+DISCOVERY_HEAD: int | None = None
+PRECISION_HEAD: int | None = None
+
 # Every route-conditional sweep before Phase 6W was taken while the precision
 # branch was unreachable on hard sets: a scoped exhaustion put the spent arm
 # into `state.refused`, and this module read that as a refusal, so 74% of
@@ -104,6 +144,7 @@ class Route:
     name: str
     alpha: float
     defer_turns: int
+    head_cap: int | None = None
     dense_weight: float | None = None
     reach: int = 0
     diversity: float | None = None
@@ -152,16 +193,27 @@ def choose(
                       decision)
     if name == PRECISION:
         return _route(
-            PRECISION, PRECISION_ALPHA, ranking.MAX_DEFER_TURNS,
+            PRECISION, PRECISION_ALPHA, _defer(PRECISION_DEFER),
             decision, dense_weight=PRECISION_DENSE,
+            head_cap=PRECISION_HEAD,
         )
     if name in (STAGNATION, COVERAGE):
         return _route(name, ranking.ALPHA, ranking.MAX_DEFER_TURNS, decision)
     return _route(
-        DISCOVERY, DISCOVERY_ALPHA, ranking.MAX_DEFER_TURNS,
+        DISCOVERY, DISCOVERY_ALPHA, _defer(DISCOVERY_DEFER),
         decision, dense_weight=DISCOVERY_DENSE, reach=DISCOVERY_REACH,
-        diversity=DISCOVERY_DIVERSITY,
+        diversity=DISCOVERY_DIVERSITY, head_cap=DISCOVERY_HEAD,
     )
+
+
+def _defer(value: int | None) -> int:
+    """Returns this route's deferral window, or the module's when it has none.
+
+    Read at call time rather than bound as a default, for the same reason
+    `dense_weight` is: a constant bound at import cannot be patched by a sweep
+    (findings 3.27).
+    """
+    return ranking.MAX_DEFER_TURNS if value is None else value
 
 
 def _route(
@@ -172,11 +224,13 @@ def _route(
     dense_weight: float | None = None,
     reach: int = 0,
     diversity: float | None = None,
+    head_cap: int | None = None,
 ) -> Route:
     return Route(
         name,
         alpha,
         defer_turns,
+        head_cap,
         dense_weight,
         reach,
         diversity,
