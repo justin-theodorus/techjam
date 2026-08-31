@@ -74,7 +74,7 @@ def survey(products: list[dict]) -> CatalogFacts:
 
     Card uniqueness is computed inside each bucket rather than catalog-wide,
     because a twin only costs anything when it survives the category filter
-    the agent applies first (`findings.md` 3.12).
+    the agent applies first (`docs/measurements.md` 3.12).
     """
     bucket: dict[str, str] = {}
     members: dict[str, list[dict]] = collections.defaultdict(list)
@@ -252,7 +252,7 @@ def _implicit(value: str, position: int, product: dict,
     """Names something true of the product that its indexed text never says.
 
     `description` is the one populated field the agent deliberately does not
-    index (`findings.md` 3.13), so a phrase drawn from it is genuinely the
+    index (`docs/measurements.md` 3.13), so a phrase drawn from it is genuinely the
     product's own and genuinely invisible to retrieval. Only 52.2% of the
     catalog carries one; the rest fall back to the constraint unchanged.
     """

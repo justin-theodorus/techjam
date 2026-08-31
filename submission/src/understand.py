@@ -14,7 +14,7 @@ Three layers, each producing the same `dialogue.ParsedTurn`.
 The layering is the point. Layer 1 is an optimization; layers 2 and 3 are the
 system. Before they existed, a message matching no template produced no
 category, an empty pool, and a slate of pure global popularity: measured at
-TechnicalScore 0.0273 with a clean health line (findings 3.24).
+TechnicalScore 0.0273 with a clean health line (measurements 3.24).
 """
 
 from __future__ import annotations
@@ -310,7 +310,7 @@ def _from_cues(
     # Everything else may carry product vocabulary, so it is worth resolving.
     # The three acts above cannot: they are meta-text about the conversation,
     # and feeding "I don't have a preference for material" into a query is pure
-    # noise (findings 3.21).
+    # noise (measurements 3.21).
     buckets = resolver.buckets(value)
     constraints = _requirements(value, buckets)
     return dialogue.ParsedTurn(
@@ -419,7 +419,7 @@ def _without_category(
 
     A greedy cue can swallow the category ("I want shirts and cotton is what I
     need"), and re-stating the bucket inside the query is measurably worse than
-    leaving it out (findings 3.6).
+    leaving it out (measurements 3.6).
     """
     if not buckets:
         return constraints

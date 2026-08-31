@@ -87,7 +87,7 @@ class RankingTest(unittest.TestCase):
         """Not a score claim: +0.0002 in the mean, measurably not harmful.
 
         Ungated the same weight is monotonically negative, so the gate is the
-        load-bearing half of the pair (findings 3.43).
+        load-bearing half of the pair (measurements 3.43).
         """
         self.assertGreater(ranking.PROFILE_WEIGHT, 0.0)
         self.assertEqual(ranking.PROFILE_MAX_CONSTRAINTS, 0)
@@ -271,7 +271,7 @@ class DeferredCommitmentTest(unittest.TestCase):
     Maximal marginal relevance is the standard answer to a slate full of
     near-duplicates. It is not the problem here: an impression is irreversible,
     so the cost is committing a slot to a product the ranking is unsure about,
-    not repeating one. Every diversity weight above zero costs (findings 3.27),
+    not repeating one. Every diversity weight above zero costs (measurements 3.27),
     and these assertions keep the alternative runnable for the ablation.
     """
 
@@ -334,7 +334,7 @@ class ExploreBandTest(unittest.TestCase):
     and the same withheld band; only the reach changes, from a fixed offset to
     one that goes deeper when the scores are flat. It costs 0.0017 on the
     saturated public 200 and gains on every risk column and the worst
-    paraphrase column (findings 3.45).
+    paraphrase column (measurements 3.45).
     """
 
     def setUp(self) -> None:
@@ -386,7 +386,7 @@ class ExploreBandTest(unittest.TestCase):
 
         A target inside ranks 2..10 converts *later at rank 1*, so spending a
         slot on it now is what made diversifying the whole head cost 100% of
-        its loss in MRR (findings 3.45).
+        its loss in MRR (measurements 3.45).
         """
         for weight in (0.5, 0.95, 1.0):
             with self.subTest(weight=weight):
@@ -485,7 +485,7 @@ class DiversityGateTest(unittest.TestCase):
     Findings 3.30 swept `DIVERSITY` on every turn of every route and read the
     result as a verdict on the mechanism. It was a verdict on one configuration:
     the sessions it lost on are the ones carrying constraints, which this gate
-    can exclude. Measured again gated, it still loses (findings 3.43), and these
+    can exclude. Measured again gated, it still loses (measurements 3.43), and these
     assertions keep the alternative runnable for the ablation.
     """
 
@@ -649,7 +649,7 @@ class NegationPenaltyTest(unittest.TestCase):
 
     def test_the_penalty_ships_live_rather_than_neutral(self) -> None:
         """The behaviour it replaces is inverted, not neutral: the refused
-        material was served at 2.3x its shelf rate (findings 3.31)."""
+        material was served at 2.3x its shelf rate (measurements 3.31)."""
         self.assertGreater(ranking.NEGATION_WEIGHT, 0.0)
         self.assertTrue(slots.NEGATION)
 
@@ -698,7 +698,7 @@ class SkipShownTest(unittest.TestCase):
 
     def test_skipping_the_shown_ships_live(self) -> None:
         """62.9% of `thin_cards` impressions were repeats, and 60 of its 78
-        misses were reachable on the slots they wasted (findings 3.32)."""
+        misses were reachable on the slots they wasted (measurements 3.32)."""
         self.assertTrue(ranking.SKIP_SHOWN)
 
     def test_a_second_slate_repeats_nothing_from_the_first(self) -> None:
@@ -786,7 +786,7 @@ class ContentionTest(unittest.TestCase):
     def test_the_margin_is_read_at_call_time(self) -> None:
         """Bound as a default it was fixed at import, so no sweep could move it.
 
-        The same defect findings 3.27 caught in `slate`: every earlier sweep of
+        The same defect measurements 3.27 caught in `slate`: every earlier sweep of
         `CONTENTION_MARGIN` silently measured the shipped value.
         """
         scores = [1.0, 0.999, 0.99, 0.5]

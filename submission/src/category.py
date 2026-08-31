@@ -3,9 +3,9 @@
 The coarse category is the highest-value and least fragile signal in the
 problem: filtering to it cuts 50,000 products to a median of 182 at
 recall@100 = 0.990, worth 0.30 of recall@10 over using it as query terms
-(findings 3.6). Recovering it by stripping a known template is exact while the
+(measurements 3.6). Recovering it by stripping a known template is exact while the
 template holds and yields nothing at all when it does not, which is measured at
-a total collapse (findings 3.24).
+a total collapse (measurements 3.24).
 
 This module is the path that does not depend on the wording. Bucket keys are
 real category names drawn from the catalog, so matching a customer's words

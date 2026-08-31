@@ -1,4 +1,4 @@
-"""Phase 6Y.0: whether a portfolio of orderings exists to switch between.
+"""Whether a portfolio of orderings exists to switch between.
 
 Adaptive orchestration needs somewhere to switch *to*. Every previous attempt
 in this project varied a constant inside one ordering -- route `alpha` (3.30),
@@ -45,7 +45,7 @@ from submission.src import text
 
 # The band a controller would serve its nine exploration slots from, and the
 # whole budget a ten-turn session can physically show once `SKIP_SHOWN` stops
-# it spending a slot twice (findings 3.44).
+# it spending a slot twice (measurements 3.44).
 HORIZON = 40
 BUDGET = 100
 
@@ -216,7 +216,7 @@ def _spent_share(head: tuple[int, ...], shown, catalog) -> float:
     """How much of an ordering's head has already been served and disproven.
 
     A slate that was served and did not end the session is provably wrong
-    (findings 3.32), so this is the one quantity available to the agent that is
+    (measurements 3.32), so this is the one quantity available to the agent that is
     about correctness rather than about how confident the text looks.
     """
     if not head:
@@ -355,7 +355,7 @@ def d3_table(measured: list[tuple[str, dict]]) -> list[str]:
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Phase 6Y.0: is there a portfolio of orderings?")
+        description="Is there a portfolio of orderings to switch between?")
     parser.add_argument("--catalog", default="data/catalog.jsonl")
     parser.add_argument("--dataset", default="data/public_set.jsonl")
     parser.add_argument("--set", default="", dest="sets",

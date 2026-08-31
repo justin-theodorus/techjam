@@ -36,7 +36,7 @@ sessions:
 
 # Pillar III: does a returning shopper convert faster than a first-time one?
 # Not a score. The organizer's harness sends no shopper twice, so this is the
-# only place per-person memory is readable at all (findings 3.33).
+# only place per-person memory is readable at all (measurements 3.33).
 memory:
 	$(PYTHON) -m harness.returning
 
@@ -47,7 +47,7 @@ deviations:
 
 # Tier 1, switched off in the shipped configuration: the full battery with the
 # dense track's one non-negative setting turned on. Reported as a column, never
-# as a headline (findings 3.35).
+# as a headline (measurements 3.35).
 dense:
 	$(PYTHON) -m harness.deviations --component dense,dense_route,dense_negation
 	$(PYTHON) -c "from submission.src import routing; \
@@ -61,7 +61,7 @@ dense:
 # one gate that reports tokens and latency and on the readable sets that still
 # have rank headroom for a permutation to move. Requires network, credentials
 # and real money, roughly 2,500 model calls, and is never reached by
-# `make deviations` (findings 3.36).
+# `make deviations` (measurements 3.36).
 llm:
 	USE_LLM=1 $(PYTHON) -m harness.run --llm --label llm --no-diff
 	USE_LLM=1 $(PYTHON) -m harness.deviations --component llm_rerank --set \

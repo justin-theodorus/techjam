@@ -11,13 +11,13 @@ slots -- are not independent. Deciding them separately means four modules each
 inferring the same thing about the conversation from the same state, which is
 how `routing` came to treat "had nothing more to say about material" as
 "refused to discuss material" and route 74% of hard-set turns to the wrong
-branch (findings 3.46). Naming the stance once, here, means the four decisions
+branch (measurements 3.46). Naming the stance once, here, means the four decisions
 disagree loudly rather than quietly.
 
 Three of the six policies change nothing the evaluator can read, and that is
 deliberate rather than unfinished: `routing`'s four routes ship at identical
 constants because every attempt to differentiate them measured negative
-(findings 3.26, 3.30, 3.35, 3.43, 3.44). What the policy layer adds on top of
+(measurements 3.26, 3.30, 3.35, 3.43, 3.44). What the policy layer adds on top of
 those measurements is the wording, which the simulator never reads and a judge
 does, and two decisions that do reach the evaluator, both switched behind
 `probe.STAGNATION_ESCAPE` and `probe.COVERAGE_SILENCE`.
@@ -46,7 +46,7 @@ MIN_PRECISION_CONSTRAINTS = 2
 # starts being "convert now". Chosen as the point where at most three turns
 # remain, so an answer still has somewhere to be spent but the slate is what
 # matters. On the public 200 no session reaches it; on `compound_hard` 58% do
-# (findings 3.46).
+# (measurements 3.46).
 COVERAGE_TURN = 8
 
 # How many turns after a pivot recovery stays sticky. `0` means the redirect
@@ -91,7 +91,7 @@ PARTIAL_READINESS_THRESHOLD = 0.3
 #     exhaustion drive `_precision_score`, `_discovery_score` *and* this
 #     scalar, so it pushes both scores the way they were already going. A
 #     bigger constant would not fix that; it would only be `MIN_PRECISION_
-#     CONSTRAINTS` re-tuned in a disguise, which is the trap findings 3.30
+#     CONSTRAINTS` re-tuned in a disguise, which is the trap measurements 3.30
 #     caught and rejected.
 #
 # The scalar itself stays: it is the honest, traceable readiness estimate the

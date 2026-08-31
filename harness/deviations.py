@@ -1,6 +1,6 @@
-"""Phase 6S-B gate: re-read the five switched-off components off the public 200.
+"""Re-read every switched-off component where it still has room to move.
 
-Five components were built, measured and shipped switched off (findings 3.26 to
+Five components were built, measured and shipped switched off (measurements 3.26 to
 3.28). Every one of those verdicts was taken on a set where 176 of 200 sessions
 already convert at rank 1, so it had 24 sessions of upside against 176 of
 downside: enough to detect harm, nowhere near enough to detect benefit. This
@@ -66,10 +66,10 @@ PUBLIC = "public 200"
 # left for a ranking change to be measured with. Reading "no effect" off such a
 # set is reading "no room": the profile ablation moved 0 sessions up and 3 down
 # not because the signal was absent but because there was nothing left to fix
-# (findings 3.28, 3.29).
+# (measurements 3.28, 3.29).
 SATURATED = 0.85
 
-# `RECOVERY_RESTART` is the one switch findings 3.26 measured across paired
+# `RECOVERY_RESTART` is the one switch measurements 3.26 measured across paired
 # seeds, and it reports a seed-to-seed range this wide. Each frozen set is a
 # single deterministic draw, so no single set can carry a claim smaller than
 # this. The control available here is instead cross-set consistency: a real
@@ -96,7 +96,7 @@ def _alpha(precision: float, discovery: float) -> dict[str, float]:
     }
 
 
-# The ranges are the ones findings 3.26 to 3.28 already swept on the public 200,
+# The ranges are the ones measurements 3.26 to 3.28 already swept on the public 200,
 # so every cell below is directly comparable to a published number rather than
 # to a fresh grid nobody has a reference for.
 DEVIATIONS = (
@@ -304,7 +304,7 @@ DEVIATIONS = (
     # Phase 6Y. `orchestration` ships *on*, so its row reads backwards like
     # `skip_shown` and `negation` do: a positive delta is a reason to switch it
     # off. `orchestration_control` is the pair of controls that could have
-    # refuted the phase, plus the selection rule it replaced (findings 3.50,
+    # refuted the phase, plus the selection rule it replaced (measurements 3.50,
     # decision 31).
     Deviation(
         "orchestration",
@@ -403,7 +403,7 @@ DEVIATIONS = (
     ),
     # The two below ship *on*, so their sweeps read backwards from every other
     # row here: the deviation is the old behaviour, and a positive delta is a
-    # reason to switch them back off (findings 3.37).
+    # reason to switch them back off (measurements 3.37).
     Deviation(
         "specific_arms",
         "probe.SPECIFIC_ARMS",
@@ -714,7 +714,7 @@ def _chosen(names: str) -> list[Deviation]:
 
 def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
-        description="Phase 6S-B gate: the switched-off components, re-read")
+        description="Re-sweep every switched component on the frozen sets")
     parser.add_argument("--agent", default="submission.agent:Agent")
     parser.add_argument("--catalog", default="data/catalog.jsonl")
     parser.add_argument("--dataset", default="data/public_set.jsonl")
@@ -791,7 +791,7 @@ def main(argv: list[str] | None = None) -> int:
         if unmoved(baseline, results):
             print("WARNING every cell reproduced the neutral score. A sweep "
                   "whose rows are all identical is a bug until proven "
-                  "otherwise (findings 3.27).")
+                  "otherwise (measurements 3.27).")
         if args.full:
             print("\n".join(detail_lines(deviation, baseline, results)))
 
@@ -800,7 +800,7 @@ def main(argv: list[str] | None = None) -> int:
         "and `make eval`\non the public row; if it does not, nothing above it "
         "is readable.\na set marked saturated cannot distinguish 'no effect' "
         "from 'no headroom'.\nno single set carries a claim below the "
-        f"{NOISE_FLOOR} seed range of findings 3.26."
+        f"{NOISE_FLOOR} seed range of measurements 3.26."
     )
     return 0
 

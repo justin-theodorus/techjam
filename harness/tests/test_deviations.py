@@ -87,7 +87,7 @@ class SweepTableTest(unittest.TestCase):
 
         Most ship switched off and are ablated upward; `NEGATION_WEIGHT`,
         `SKIP_SHOWN` and the gated `PROFILE_WEIGHT` ship live and are ablated
-        back down (findings 3.31, 3.32, 3.43). `submission/src/tests` pins each
+        back down (measurements 3.31, 3.32, 3.43). `submission/src/tests` pins each
         constant individually;
         this asserts the sweep table names the same ones and nothing that has
         been renamed away.
@@ -130,12 +130,12 @@ class SweepTableTest(unittest.TestCase):
             "slots.NEGATION": True,
             "ranking.LLM_RERANK": 0,
             # These two ship on, so their sweeps deviate toward the old
-            # behaviour rather than away from a neutral one (findings 3.41).
+            # behaviour rather than away from a neutral one (measurements 3.41).
             "probe.SPECIFIC_ARMS": True,
             "probe.WILDCARD_FALLBACK_RATIO": 0.2,
             "dialogue.SCOPED_EXHAUSTION": True,
             # Phase 6W's two dialogue switches. Both ship on, so their sweeps
-            # also read backwards (findings 3.47).
+            # also read backwards (measurements 3.47).
             "probe.STAGNATION_ESCAPE": True,
             "probe.COVERAGE_SILENCE": True,
             "dialogue.STAGNATION_TURNS": 2,
@@ -149,7 +149,7 @@ class SweepTableTest(unittest.TestCase):
             "memory.CARRY_POSITIVES": False,
             # Phase 6Y. `ENABLED` ships on, so the mechanism row reads
             # backwards; the three controls ship off and their rows read
-            # forwards (findings 3.50).
+            # forwards (measurements 3.50).
             "orchestrate.ENABLED": True,
             "orchestrate.SPENT_RATIO": 0.5,
             "orchestrate.CANDIDATES": orchestrate.CANDIDATES,

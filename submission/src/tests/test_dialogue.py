@@ -241,7 +241,7 @@ class TurnCounterTest(unittest.TestCase):
 
 
 class ScopedExhaustionTest(unittest.TestCase):
-    """"Nothing more about X" is not "nothing more at all" (findings 3.37)."""
+    """"Nothing more about X" is not "nothing more at all" (measurements 3.37)."""
 
     EMPTY = dialogue.ParsedTurn(exhausted=True)
 
@@ -309,7 +309,7 @@ class TargetedOverrideTest(unittest.TestCase):
     """A replacement erases what it contradicts, not everything.
 
     Worth +0.016 overall and it converts every override session on the public
-    set, 0.900 to 1.000 hit@10 (findings 3.26). The earlier comparison only ever
+    set, 0.900 to 1.000 hit@10 (measurements 3.26). The earlier comparison only ever
     tested erase-everything against keep-everything.
     """
 
@@ -395,7 +395,7 @@ class DeclinedAndIdleTest(unittest.TestCase):
         self.assertIn("material", state.declined)
 
     def test_running_dry_on_an_arm_is_refused_but_not_declined(self) -> None:
-        """The distinction findings 3.46 measured. `refused` stops the probe
+        """The distinction measurements 3.46 measured. `refused` stops the probe
         asking again; only `declined` means the customer said no."""
         state = dialogue.update(
             dialogue.SessionState(),

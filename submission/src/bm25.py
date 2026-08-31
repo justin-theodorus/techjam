@@ -11,8 +11,8 @@ from array import array
 # saturation and heavy length normalisation both work against the signal. Moving
 # toward 0.6 / 0.3 is worth +0.030 of TechnicalScore.
 #
-# The axis has a cost at both ends, which is why these sit mid-range (findings
-# 3.22). Textbook values over-penalise long documents. Driving K1 and B to zero
+# The axis has a cost at both ends, which is why these sit mid-range
+# (measurements 3.22). Textbook values over-penalise long documents. Driving K1 and B to zero
 # wins another 0.013 on the public set but leaks popularity into the lexical
 # half, because a product carrying more bullets matches more distinct constraint
 # terms and those are the heavily-reviewed ones -- and insuring against a change

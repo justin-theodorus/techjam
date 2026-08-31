@@ -252,7 +252,7 @@ class MemoryTest(unittest.TestCase):
 
     The organizer's harness never names a shopper, so the reported score must
     not depend on this existing. That is asserted here as "not reached" rather
-    than as "neutral", which is the stronger of the two claims (findings 3.33).
+    than as "neutral", which is the stronger of the two claims (measurements 3.33).
     """
 
     def setUp(self) -> None:

@@ -42,7 +42,7 @@ class SelectionOrderTest(unittest.TestCase):
     def test_running_dry_on_one_arm_is_not_a_decline(self) -> None:
         """`refused` merges both readings; only `declined` is a refusal.
 
-        This is the defect findings 3.46 measured: a scoped exhaustion put the
+        This is the defect measurements 3.46 measured: a scoped exhaustion put the
         spent arm into `refused`, and reading that as a refusal sent 74% of
         `compound_hard` turns down the boundary branch.
         """

@@ -160,7 +160,7 @@ FILLER = Style(
 )
 
 # Vocabulary substitution inside the constraint strings themselves. Reproduces the
-# corruption behind findings 3.17, which is the worst cell measured so far.
+# corruption behind measurements 3.17, which is the worst cell measured so far.
 SYNONYM = Style(
     name="synonym",
     browsing=CLEAN.browsing,

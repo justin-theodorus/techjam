@@ -99,7 +99,7 @@ class PolarityTest(unittest.TestCase):
 
     def test_an_attribute_named_negatively_is_not_a_refusal(self) -> None:
         """This catalog spells 239 `Non-Polarized` and 192 `No Closure
-        closure`, 3 of which reach the public 200 (findings 3.31)."""
+        closure`, 3 of which reach the public 200 (measurements 3.31)."""
         for value in ("Non-Polarized", "No Closure closure", "No-Tie Laces",
                       "no wool"):
             with self.subTest(value=value):
@@ -171,7 +171,7 @@ class SlotTest(unittest.TestCase):
 
 
 class ClassifyTextTest(unittest.TestCase):
-    """Typing free text, which `classify` cannot do (findings 3.38)."""
+    """Typing free text, which `classify` cannot do (measurements 3.38)."""
 
     def setUp(self) -> None:
         builder = slots.TaxonomyBuilder()

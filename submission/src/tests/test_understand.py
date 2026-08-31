@@ -101,7 +101,7 @@ class TemplateValidationTest(unittest.TestCase):
     This is the punctuation failure: the prefix matched, the suffix did not, and
     the remainder of the sentence was returned as a category. An unknown
     category is an empty pool, which is worse than the wider pool the general
-    path would have produced (findings 3.24).
+    path would have produced (measurements 3.24).
     """
 
     def test_a_broken_suffix_falls_through_to_the_general_path(self) -> None:

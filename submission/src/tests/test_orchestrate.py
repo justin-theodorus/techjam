@@ -45,7 +45,7 @@ class RefutedTest(unittest.TestCase):
 
     def test_slates_served_before_a_pivot_prove_nothing(self) -> None:
         """`override_applied` gates scoring, so a pre-pivot slate was never
-        checked against the target that counts (findings 3.32)."""
+        checked against the target that counts (measurements 3.32)."""
         state = dialogue.SessionState(turn=6, pivoted=True, pivot_turn=4)
 
         self.assertEqual(orchestrate.refuted(state), 2)

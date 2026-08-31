@@ -99,7 +99,7 @@ def compose(
     `evaluator/local_evaluator.py:243` type-checks this field and never parses
     it, and `customer_reply()` branches on the `ask_attribute` enum alone. So
     nothing here can move the score in either direction, and everything here is
-    what a person reading the transcript actually sees (findings 3.46).
+    what a person reading the transcript actually sees (measurements 3.46).
 
     Args:
         state: The session after this turn's message was folded in.

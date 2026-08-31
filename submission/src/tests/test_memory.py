@@ -22,7 +22,7 @@ def preference(attribute: str, value: str) -> slots.Slot:
 
 
 class IdentityTest(unittest.TestCase):
-    """The key is the person, never the profile blurb (findings 3.33).
+    """The key is the person, never the profile blurb (measurements 3.33).
 
     `user_profile` repeats across 75 of 200 public sessions, but those are
     distinct people whose aggregates coincide, so a store keyed on the blurb

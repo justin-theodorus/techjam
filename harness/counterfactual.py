@@ -14,7 +14,7 @@ from the public rows, and scores each through the real `evaluate()`.
 
 Read the `uniform` column as a pessimistic bound rather than a forecast: a
 uniformly drawn target is not merely less popular, it is a genuinely harder
-product with thinner text (findings 3.12, 3.20).
+product with thinner text (measurements 3.12, 3.20).
 """
 
 from __future__ import annotations
@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     print(header + f"{'worst':>15}")
     row = f"{real:>15.4f}" + "".join(f"{value:>15.4f}" for value in scores.values())
     print(row + f"{min(scores.values()):>15.4f}")
-    print("\nread `uniform` as a pessimistic bound, not a forecast (findings 3.20)")
+    print("\nread `uniform` as a pessimistic bound, not a forecast (measurements 3.20)")
     return 0
 
 

@@ -303,7 +303,7 @@ nothing.**
   it, so a timeout or a refusal serves exactly what the offline agent would have
   served. Two gates keep it off: `USE_LLM=1` decides whether it is built at all,
   and `ranking.LLM_RERANK` whether a built stage is consulted.
-  **Measured and switched off** (findings 3.36). `claude-haiku-4-5` over all 200
+  **Measured and switched off** (measurements 3.36). `claude-haiku-4-5` over all 200
   sessions, 323 live calls: **0.9333 against the 0.9554 the offline agent scored
   at that commit**, hit@10 and MTTC unchanged to the digit, all of the loss in
   MRR (0.925 to 0.852). The offline path has since risen to 0.9672 and the model

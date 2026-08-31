@@ -25,7 +25,7 @@ PHRASE_POOL = 20
 # and using all nine vocabulary words with no personalisation at all scores
 # better than either (66.0%). What they actually measure is how much text a
 # listing carries, which is a corrupted proxy for the popularity prior already
-# in the blend (findings 3.28).
+# in the blend (measurements 3.28).
 #
 # So the weight is set by what it can displace rather than by what it knows.
 # Inside a bucket the popularity-only scores are packed at a median adjacent gap
@@ -39,11 +39,11 @@ PHRASE_POOL = 20
 # which is two hundred times below the 0.04 noise floor: it is measurably not
 # harmful rather than measurably good. It ships because the brief asks the agent
 # to use the anonymised profile and this is the configuration that does so
-# without spending anything, not because it earns score (findings 3.43).
+# without spending anything, not because it earns score (measurements 3.43).
 PROFILE_WEIGHT = 0.02
 
 # Ungated, the same weight is monotonically negative and reaches -0.1125 on
-# `silent_customer` (findings 3.30), because it perturbs turns that carry query
+# `silent_customer` (measurements 3.30), because it perturbs turns that carry query
 # evidence and there it displaces the customer's own words. With nothing
 # disclosed there is no lexical half to displace and the term competes only with
 # the prior. `-1` never gates, which is the configuration 3.30 rejected.
@@ -55,7 +55,7 @@ PROFILE_MAX_CONSTRAINTS = 0
 # word the catalog never uses. BM25 scores "trousers" at zero against a product
 # whose bullets say "pants"; the latent space scores it at 0.91, because the two
 # words occupy the same neighbourhood in text the catalog wrote about itself
-# (findings 3.35). That is the `synonym` column's exact failure mode, and it is
+# (measurements 3.35). That is the `synonym` column's exact failure mode, and it is
 # the worst column we have.
 #
 # Ships at zero. The asset is bundled and loaded, and at this weight it
@@ -75,7 +75,7 @@ DENSE_NEGATION_WEIGHT = 0.0
 # switched-off deviations this ships live, because the behaviour it replaces is
 # not a neutral default but an inverted one: without it "not polyester" is
 # scored as evidence *for* polyester, and the agent served the refused material
-# at 2.3x its shelf rate, up to 5.1x on the rarer ones (findings 3.31).
+# at 2.3x its shelf rate, up to 5.1x on the rarer ones (measurements 3.31).
 #
 # A penalty rather than a filter. Refusal detection is lexical and the catalog
 # spells some attribute names negatively, so a false positive here costs a few
@@ -96,7 +96,7 @@ NEGATION_WEIGHT = 0.5
 #
 # This is deferred commitment, not diversity, and the difference was measured
 # rather than assumed: maximal marginal relevance over the same pool loses 0.005
-# at its best setting and every weight above zero costs (findings 3.27).
+# at its best setting and every weight above zero costs (measurements 3.27).
 HEAD_SIZE = 1
 
 # How far past the slate the set-selection stage may reach, and how much it
@@ -115,7 +115,7 @@ DIVERSITY = 0.0
 # 0.0542 on `negated_constraints`, and the losing sessions are the ones that had
 # text to rank on, which a gate can exclude and the unconditional sweep could
 # not. Measured at -1 and shipped there: gating shrinks the loss on every set it
-# was expected to rescue without turning one positive (findings 3.43).
+# was expected to rescue without turning one positive (measurements 3.43).
 DIVERSITY_MAX_CONSTRAINTS = -1
 
 # How undifferentiated the ranking must be before spreading the slate is worth
@@ -139,7 +139,7 @@ FLATNESS_GATE = 0.0
 # reciprocal rank of 1.0, and spending a slot on it now converts it at 0.2
 # instead. Diversifying the whole head therefore cannibalises the withheld band,
 # and measurement says that is the entire cost -- the loss is 100% MRR while
-# MTTC *improves* (findings 3.45).
+# MTTC *improves* (measurements 3.45).
 #
 # Restricted to `ordered[SLATE_SIZE:WINDOW]` it cannot touch the withheld band
 # at all. What it replaces is only the fixed reach to ranks 11-19, with a reach
@@ -155,8 +155,8 @@ FLATNESS_GATE = 0.0
 # set is 88% rank-1 and its rows are not evidence for a ranking change; the risk
 # columns are what a differently-drawn private set would look like. This is the
 # same trade `ALPHA` already makes by shipping at 0.6 rather than at the public
-# optimum of 1.3, which collapses to 0.595 under uniform targets (findings
-# 3.20, 3.45).
+# optimum of 1.3, which collapses to 0.595 under uniform targets
+# (measurements 3.20, 3.45).
 EXPLORE_DIVERSITY = 0.95
 
 # Whether the slots below the committed head are filled at all.
@@ -194,7 +194,7 @@ EXPLORE_DIVERSITY = 0.95
 # `EXPLORE_DIVERSITY` and `EXPLORE_SORT` only decide what goes in these slots,
 # so both are dead while this is off. They are kept live because they are what
 # the band reverts to if a scorer ever weights speed heavily enough to want it
-# back (findings 3.27 measured that agent).
+# back (measurements 3.27 measured that agent).
 EXPLORE_FILL = False
 
 # Whether the exploration slots are served in score order or in the order
@@ -237,7 +237,7 @@ CONTENTION_MARGIN = 0.0005
 #
 # Measured at zero and shipped disabled: converging as soon as one product
 # leads raises hit@10 to 0.995 but drops MRR 0.909 to 0.781, and converging
-# sooner is worse still (findings 3.27). The signal is kept because it is what
+# sooner is worse still (measurements 3.27). The signal is kept because it is what
 # the reply explains itself with, and because a scorer weighting speed more
 # heavily would want it back.
 CONVERGE_AT = 0
@@ -248,7 +248,7 @@ CONVERGE_AT = 0
 # slate, so anything already shown is not the answer and re-showing it converts
 # nothing. Measured before the change, 62.9% of impressions on `thin_cards`
 # were repeats and 60 of its 78 misses had the target inside the slot budget
-# the session had already spent (findings 3.32).
+# the session had already spent (measurements 3.32).
 SKIP_SHOWN = True
 
 # Whether a built model-backed rerank stage may reorder the served ten.
@@ -262,7 +262,7 @@ SKIP_SHOWN = True
 # cannot move HitRate or MTTC, but on the public 200 only 20 of 200 sessions
 # convert below rank 1, so a *perfect* reordering is worth 0.022 of score while
 # a careless one can move all 180 sessions that already convert first
-# (findings 3.36).
+# (measurements 3.36).
 LLM_RERANK = 0
 
 # A session discloses at most four constraints, after which the customer has
@@ -297,7 +297,7 @@ MAX_DEFER_TURNS = 6
 # The named orderings a route may serve from. `BLEND` is the shipped one and
 # every reported number is taken on it; the rest exist so that a session whose
 # blend head has been served and disproven has somewhere to switch to. See
-# `submission/src/orchestrate.py` for what decides, and findings 3.50 for what
+# `submission/src/orchestrate.py` for what decides, and measurements 3.50 for what
 # each one is worth.
 BLEND = "blend"
 LEXICAL = "lexical"
@@ -336,7 +336,7 @@ def slate(
     uncertain one yields a few, which widens the pool rather than emptying it.
     """
     # Resolved here rather than in the signature: a default argument binds at
-    # definition, which is how findings 3.27 lost a whole sweep to a constant
+    # definition, which is how measurements 3.27 lost a whole sweep to a constant
     # that could no longer be patched. `None` means "whatever the module says
     # now", which is what makes this switch readable by `make deviations`.
     if dense_weight is None:
@@ -366,7 +366,7 @@ def slate(
     # descending list; `phrase_promoted` returns one sorted by evidence
     # instead, so measuring it afterwards counts an arbitrary prefix. That
     # mis-read is worth +0.0008 on the public 200 and nothing on any guarded
-    # column, which is what a lucky bug looks like (findings 3.58).
+    # column, which is what a lucky bug looks like (measurements 3.58).
     contenders = contention(scores)
     ordered, scores = phrase_promoted(catalog, ordered, scores, state)
     ordered, scores = unseen(catalog, ordered, scores, state.shown, size)
@@ -670,7 +670,7 @@ def contention(scores: list[float], margin: float | None = None) -> int:
         return len(scores)
     # Resolved here rather than in the signature. Bound as a default it was
     # fixed at import, so every sweep of `CONTENTION_MARGIN` silently measured
-    # the shipped value -- the same defect findings 3.27 caught in `slate`.
+    # the shipped value -- the same defect measurements 3.27 caught in `slate`.
     if margin is None:
         margin = CONTENTION_MARGIN
     floor = best * (1.0 - margin)
@@ -755,7 +755,7 @@ def flatness(scores: list[float], depth: int = SLATE_SIZE) -> float:
     every set measured, because the popularity prior separates the head sharply
     even where the text does not. Counting lexical-only flatness instead does
     vary, but its median is 1 whether the target sits at rank 5 or rank 90, so
-    it carries no depth information (findings 3.34). A ratio across the served
+    it carries no depth information (measurements 3.34). A ratio across the served
     depth is neither of those, and it does spread.
 
     A non-positive leader has no scale to be a ratio of. `ranked` subtracts for
@@ -776,7 +776,7 @@ def worth_diversifying(
     Two independent vetoes, both disabled, and neither can switch spreading on:
     a zero weight stays zero whatever they say. Both are read from the module
     here rather than taken as defaulted arguments, for the same reason
-    `dense_weight` is resolved inside `slate` (findings 3.27).
+    `dense_weight` is resolved inside `slate` (measurements 3.27).
     """
     if 0 <= DIVERSITY_MAX_CONSTRAINTS < len(state.constraints):
         return False
@@ -884,7 +884,7 @@ class Reranker(Protocol):
     zero by construction rather than by good behaviour, and can move precision
     alone. Precision is not similarly protected: 180 of 200 public sessions
     already convert at rank 1, so a careless permutation has far more to lose
-    there than a good one has to win (findings 3.36). A model-backed
+    there than a good one has to win (measurements 3.36). A model-backed
     implementation drops in here without any other stage needing to know.
     """
 
@@ -933,7 +933,7 @@ def rerank(
     ends on the first turn the answer appears anywhere in the slate, so
     membership fixes coverage and timing while position fixes precision:
     reordering can only move precision, and this stage is therefore free of
-    coverage risk (findings 3.23).
+    coverage risk (measurements 3.23).
 
     A constraint the index has not seen, or one so common that no candidate is
     distinguished by it, leaves the blend's order untouched.
@@ -963,7 +963,7 @@ def phrase_promoted(
     the head resolves to one product on 429 of 482 public turns, and permuting
     a one-element list does nothing. So the sharpest signal the catalog offers
     stopped reaching the decision it is best at making -- which single product
-    to commit the turn to (findings 3.58).
+    to commit the turn to (measurements 3.58).
 
     Applied here it decides the head instead of decorating it. The sort is
     stable, so a product no constraint names keeps its blend position and a

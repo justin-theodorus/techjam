@@ -14,7 +14,7 @@ class RouteChoiceTest(unittest.TestCase):
                          routing.DISCOVERY)
 
     def test_one_constraint_is_still_discovery(self) -> None:
-        """A bare material word matches half its bucket (findings 3.18)."""
+        """A bare material word matches half its bucket (measurements 3.18)."""
         state = dialogue.SessionState(constraints=("cotton",))
 
         self.assertEqual(routing.choose(state).name, routing.DISCOVERY)
@@ -35,7 +35,7 @@ class RouteChoiceTest(unittest.TestCase):
         `dialogue.SCOPED_EXHAUSTION` puts the spent arm into `refused` so the
         probe stops asking about it. Reading that as a refusal routed 74% of
         `compound_hard` turns to boundary and left the precision branch firing
-        on 1.6% of them (findings 3.46).
+        on 1.6% of them (measurements 3.46).
         """
         state = dialogue.SessionState(
             refused=(slots.MATERIAL,),
@@ -133,7 +133,7 @@ class NeutralityTest(unittest.TestCase):
 
         `None` means "defer to `ranking.DENSE_WEIGHT`", which is zero, so no
         route runs the dense retriever and no reported number depends on the
-        bundled asset (findings 3.35).
+        bundled asset (measurements 3.35).
         """
         states = (
             dialogue.SessionState(),
@@ -219,8 +219,8 @@ class RouteDiversityTest(unittest.TestCase):
     setting whose argument does not reduce to `alpha` in a disguise, because it
     changes how the slate is selected rather than how the pool is scored. It
     costs 0.035 to 0.042 on the public 200 at every weight measured, which is
-    barely less than the unconditional weight findings 3.27 rejected
-    (findings 3.43).
+    barely less than the unconditional weight measurements 3.27 rejected
+    (measurements 3.43).
     """
 
     def test_no_route_deviates_on_diversification(self) -> None:

@@ -64,7 +64,7 @@ def main() -> int:
         return 1
     # This prompt carries three candidates; a real turn carries ten, so the
     # per-call figure above is a floor rather than a forecast. The stub run
-    # measured 325 calls and ~910 input tokens each (findings 3.36).
+    # measured 325 calls and ~910 input tokens each (measurements 3.36).
     print(f"\nprojected `make eval` column: 325 calls, "
           f"~${llm.cost(325 * 910, 325 * 40):.2f}")
     return 0

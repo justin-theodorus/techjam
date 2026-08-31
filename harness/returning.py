@@ -4,7 +4,7 @@ The organizer's harness cannot answer that. `evaluate()` mints a fresh
 `public_{uuid4().hex}` per session and the published contract closes both
 `reset_request` and `user_profile` with `additionalProperties: false`, so no
 identity reaches the agent and a per-person memory is written once and read
-never (findings 3.33). This module supplies the identity the interface has no
+never (measurements 3.33). This module supplies the identity the interface has no
 field for, and it does so beside the real `evaluate()` rather than instead of
 it, so the dialogue and the score still come from the organizer's own loop.
 
@@ -205,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("Not a TechnicalScore. The organizer's harness supplies no second")
     print("visit, so this capability is demonstrable here and scoreable")
-    print("nowhere (findings 3.33).")
+    print("nowhere (measurements 3.33).")
     return 0
 
 

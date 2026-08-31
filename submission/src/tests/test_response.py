@@ -250,7 +250,7 @@ class PolicyPhrasingTest(unittest.TestCase):
     Nothing here can move the score: `evaluator/local_evaluator.py:243` only
     type-checks `message`, and `customer_reply()` reads the `ask_attribute`
     enum alone. These assertions are about what a person reading the transcript
-    sees (findings 3.46).
+    sees (measurements 3.46).
     """
 
     def setUp(self) -> None:

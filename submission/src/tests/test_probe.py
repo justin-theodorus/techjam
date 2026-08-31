@@ -309,7 +309,7 @@ class GroundedOptionsTest(unittest.TestCase):
         """Parcel dimensions classify as size and are not size vocabulary.
 
         Without the vocabulary check a question offers the customer a shipping
-        box as a choice of size (findings 3.38).
+        box as a choice of size (measurements 3.38).
         """
         self.assertEqual(
             probe.options(self.state, self.catalog, slots.SIZE), ()

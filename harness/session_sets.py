@@ -67,8 +67,8 @@ MANIFEST = (
 
     # Axis 6, identity. The only axis that relates rows to each other, and the
     # only instrument on which per-person memory is readable at all: the
-    # organizer's own harness never sends the same shopper twice (findings
-    # 3.33).
+    # organizer's own harness never sends the same shopper twice
+    # (measurements 3.33).
     #
     # There is deliberately no second set for the scrambled control. Rotating
     # the identities of *these* rows at scoring time holds the targets, their

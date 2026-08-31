@@ -57,7 +57,7 @@ class Bm25Test(unittest.TestCase):
         self,
     ) -> None:
         # Pinned deliberately: 1.2 / 0.75 costs 0.030 of TechnicalScore, and
-        # K1 at zero leaks popularity into the lexical half (findings 3.22).
+        # K1 at zero leaks popularity into the lexical half (measurements 3.22).
         self.assertEqual((bm25.K1, bm25.B), (0.6, 0.3))
 
 

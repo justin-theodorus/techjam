@@ -605,7 +605,7 @@ class IdentityAxisTest(unittest.TestCase):
 
     It is the only axis that relates rows to each other, and the only
     instrument on which per-person memory is readable at all, because the
-    organizer's harness never sends the same shopper twice (findings 3.33).
+    organizer's harness never sends the same shopper twice (measurements 3.33).
     """
 
     def _returning(self, **overrides) -> list[dict]:

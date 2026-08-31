@@ -10,7 +10,7 @@ rather than statistical.** `local_evaluator.evaluate()` mints a fresh
 `reset_request` and `user_profile` with `additionalProperties: false`, so the
 declared interface carries no shopper identity at all. A store keyed on identity
 is therefore written once per session and read never, and no sweep on that
-harness argues against it in either direction (findings 3.33). `Agent.remember`
+harness argues against it in either direction (measurements 3.33). `Agent.remember`
 is the seam an identity arrives through when one exists; absent a caller the
 whole module is inert, which is what keeps the reported score untouched.
 
@@ -49,7 +49,7 @@ MIN_WEIGHT = 0.3
 # affinity reorders a tie the resolver was going to break arbitrarily. Carrying
 # a positive constraint is the one that competes with what the customer is
 # saying now, which is exactly the shape `ranking.PROFILE_WEIGHT` measured at
-# -0.1125 ungated (findings 3.30), so it ships off until swept.
+# -0.1125 ungated (measurements 3.30), so it ships off until swept.
 CARRY_REFUSALS = True
 CARRY_ARMS = True
 CARRY_BUCKETS = True

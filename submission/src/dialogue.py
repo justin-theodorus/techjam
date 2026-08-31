@@ -35,7 +35,7 @@ ACT_REJECT = "reject"
 # constraint list. Both extremes had been measured against each other and total
 # erasure won; targeted erasure is the third option neither tested, and it beats
 # both. Worth +0.016 overall and it converts every override session, 0.900 to
-# 1.000 hit@10 (findings 3.26).
+# 1.000 hit@10 (measurements 3.26).
 TARGETED_OVERRIDE = True
 
 # How many consecutive answered questions may add nothing before the session is
@@ -52,7 +52,7 @@ STAGNATION_TURNS = 2
 # ever asked, because the wildcard matches everything -- which is why this was
 # latent rather than wrong for as long as it was. Ask specifically and the
 # unscoped reading ends the session's narrowing on the first miss: `probe`
-# stops asking and `ranking.head_size` opens the slate (findings 3.37).
+# stops asking and `ranking.head_size` opens the slate (measurements 3.37).
 #
 # Ships live. What it replaces is an inverted default rather than a neutral
 # one, and it is worth up to +0.0996 on `compound_hard` once a specific arm is
@@ -124,13 +124,13 @@ class SessionState:
         Refusals are held out. Scoring "not polyester" as a positive query
         walks the customer toward the thing they declined: measured at 2.3x
         that material's shelf rate, and up to 5.1x on the rarer ones
-        (findings 3.31).
+        (measurements 3.31).
         """
         if not self.slots:
             # The gate on carried positives, and the whole of it: a remembered
             # preference speaks only where the customer has not, which is the
             # shape `ranking.PROFILE_MAX_CONSTRAINTS` settled on after the
-            # ungated version measured -0.1125 (findings 3.30).
+            # ungated version measured -0.1125 (measurements 3.30).
             return " ".join((*self.constraints, *self.carried_positives))
         return " ".join(
             slot.value for slot in self.slots if not slot.negated
@@ -265,7 +265,7 @@ def update(
         last_slate=state.last_slate,
         # A pivot un-tests everything already shown. `override_applied` gates
         # scoring, so a pre-pivot impression was never checked against the new
-        # target and may well be it (findings 3.4, the 65 wasted pre-pivot
+        # target and may well be it (measurements 3.4, the 65 wasted pre-pivot
         # hits the health line counts).
         shown=frozenset() if parsed.pivot else state.shown,
         # A pivot outranks memory for the same reason it outranks this

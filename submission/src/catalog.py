@@ -75,7 +75,7 @@ class Catalog:
     # What each product leads with, as `(attribute, value_id, weight)` per
     # line, and the ids the weights are keyed on. Read only by `probe`, to
     # judge what a question is expected to be worth against the pool actually
-    # in contention (findings 3.37). Value strings are interned to ids because
+    # in contention (measurements 3.37). Value strings are interned to ids because
     # 50,000 products' bullets held as strings is resident memory the scored
     # path never reads back.
     offers: tuple[tuple[tuple[str, int, float], ...], ...] = ()
@@ -237,7 +237,7 @@ def _lead_lines(product: dict) -> list[str]:
     what matters first and pads afterwards, which is the whole reason position
     is worth recording: without it every product's declared size reads as
     something a shopper leads with, and the probe asks about size twenty times
-    more often than customers mention it (findings 3.38).
+    more often than customers mention it (measurements 3.38).
     """
     lines = [str(value) for value in (product.get("features") or [])]
     details = product.get("details")

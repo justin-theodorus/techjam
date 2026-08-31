@@ -2,12 +2,12 @@
 
 Every adaptive lever this project has built keyed on a *pool-shape* proxy --
 contention (3.32), lexical flatness (3.32), read confidence (3.49), constraint
-count (3.43) -- and findings 3.49 named why they all failed: a statistic that
+count (3.43) -- and measurements 3.49 named why they all failed: a statistic that
 is uncorrelated with correctness is worse than no statistic, because it spends
 the hedge in the wrong world. Lexical flatness measures how distinctive the
 customer's words are, never whether they are right.
 
-There is exactly one signal here that is about correctness, and findings 3.32
+There is exactly one signal here that is about correctness, and measurements 3.32
 proved it is a theorem rather than a heuristic: `evaluate()` ends a session at
 the first turn the target appears in the slate, so **a slate that was served
 and did not end the session is provably wrong**. `ranking.SKIP_SHOWN` already
@@ -44,7 +44,7 @@ ENABLED = True
 # How much of an ordering's head must already have been served and disproven
 # before that ordering counts as refuted for this session.
 #
-# Measured before it was chosen (findings 3.50, D3): at 0.5 the trigger fires
+# Measured before it was chosen (measurements 3.50, D3): at 0.5 the trigger fires
 # on 2.1% of public-200 turns and 46.4% of `compound_hard` turns, which is the
 # profile a fallback wants -- silent where the agent already converts at rank
 # 1, loud where it is missing.
@@ -64,14 +64,14 @@ MIN_REFUTED = 1
 # blend is first because it is the shipped one and the controller must be able
 # to stay. `ranking.PHRASE` is the reason the list is worth having at all: on
 # the sets where the customer quotes the card, it reaches a missed target that
-# no other ordering does (findings 3.50, D1).
+# no other ordering does (measurements 3.50, D1).
 CANDIDATES = (ranking.BLEND, ranking.PHRASE, ranking.PRIOR, ranking.LEXICAL)
 
 # Control 1: switch on a fixed turn instead of on the evidence. A continuing
 # session has failed on every prior turn, so the *count* of refutations is just
 # the turn index; if this reproduces the real controller, the mechanism is a
 # turn-indexed constant wearing an adaptive costume and must be reported as
-# one. `0` disables the control. See findings 3.50 and decision 31.
+# one. `0` disables the control. See measurements 3.50 and decision 31.
 SCHEDULE = 0
 
 # Control 3: rank the candidates by how unexplored their heads are, instead of
@@ -79,7 +79,7 @@ SCHEDULE = 0
 # written and it is measurably the wrong one: freshness is a *coverage*
 # statistic, so an ordering with nothing to say looks maximally fresh, and with
 # four candidates to choose between it cost 0.0015 on the `synonym` column
-# while every two-candidate pair was neutral or better (findings 3.50). Kept as
+# while every two-candidate pair was neutral or better (measurements 3.50). Kept as
 # a switch because it is the ablation that shows why the shipped rule is
 # ordered by information content instead.
 FRESHEST = False
@@ -178,7 +178,7 @@ def eligible(
     ordering nobody has served from looks *maximally* fresh -- so the emptiest
     candidate wins on exactly the turns where it knows least. Measured: it cost
     0.0015 on the `synonym` paraphrase column, where the customer's words reach
-    neither index (findings 3.50).
+    neither index (measurements 3.50).
 
     The blend and the prior are always eligible: the prior is what the pool is
     already sorted by, and it is evidence about the target distribution rather

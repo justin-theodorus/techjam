@@ -9,7 +9,7 @@ both, with the discovery route able to reach past the bucket entirely.
 That last part is what makes routing a real choice rather than a second set of
 constants. While both routes pointed at one retriever, any route-conditional
 setting was `alpha` re-tuned to the public target distribution wearing a route
-as a disguise, which is exactly what findings 3.30 caught and rejected.
+as a disguise, which is exactly what measurements 3.30 caught and rejected.
 
 Every route ships at the same constants until a measurement moves it, so
 routing costs nothing until it earns something. A route whose specialisation
@@ -39,14 +39,14 @@ MIN_PRECISION_CONSTRAINTS = policy_module.MIN_PRECISION_CONSTRAINTS
 # How much weight the popularity prior carries on each route. The argument for
 # splitting it is good: a session that has said little has said nothing worth
 # displacing the prior with, and at low `alpha` one weak constraint costs buying
-# 0.40 of turn-1 hit@10 (findings 3.16).
+# 0.40 of turn-1 hit@10 (measurements 3.16).
 #
 # It does not survive contact with a held-out split. The dev optimum sits at
 # 0.4/1.3 and is worth +0.014 there; on the held-out half the same setting is
 # 0.002 *worse* than a single shared `alpha`, and the dev surface is non-
 # monotone, which is the shape of noise rather than signal. Both routes
 # therefore ship at `ranking.ALPHA` and this is reported as a negative result
-# (findings 3.26).
+# (measurements 3.26).
 DISCOVERY_ALPHA = ranking.ALPHA
 PRECISION_ALPHA = ranking.ALPHA
 
@@ -94,7 +94,7 @@ PRECISION_HEAD: int | None = None
 # branch was unreachable on hard sets: a scoped exhaustion put the spent arm
 # into `state.refused`, and this module read that as a refusal, so 74% of
 # `compound_hard` turns took the boundary branch and precision took 1.6%
-# (findings 3.46). The branch now reads `state.declined`, which holds only
+# (measurements 3.46). The branch now reads `state.declined`, which holds only
 # arms the customer actually declined. The verdicts above stand -- all four
 # routes ship at identical constants, so no score depended on which one was
 # named -- but any *re-measurement* of a route-conditional setting is taken
@@ -104,7 +104,7 @@ PRECISION_HEAD: int | None = None
 # argument for it is that a replacement resets what the customer has told us.
 # Measured at zero once a redirect stopped erasing the constraints it does not
 # contradict: the surviving evidence is what converts, and re-narrowing only
-# delays it (findings 3.26).
+# delays it (measurements 3.26).
 RECOVERY_RESTART = 0
 
 # How much the dense track weighs on each route, and how far past the category
@@ -114,7 +114,7 @@ RECOVERY_RESTART = 0
 #
 # The brief assigns dense retrieval to Browsing, and measurement puts its value
 # somewhere else entirely. Both halves ship at neutral and the table is in
-# findings 3.35, because what it found is more useful than what it was looking
+# measurements 3.35, because what it found is more useful than what it was looking
 # for.
 PRECISION_DENSE: float | None = None
 DISCOVERY_DENSE: float | None = None
@@ -133,7 +133,7 @@ DISCOVERY_REACH = 0
 # 1, buying included, because buying opens with one constraint and the precision
 # threshold is two -- so gating on the route is a turn-1 gate rather than a
 # browsing gate, and `ranking.DIVERSITY_MAX_CONSTRAINTS` is the sharper
-# instrument for the same idea (findings 3.43).
+# instrument for the same idea (measurements 3.43).
 DISCOVERY_DIVERSITY: float | None = None
 
 
@@ -170,7 +170,7 @@ def choose(
     policies name no retrieval of their own -- stagnation and coverage change
     what is asked and how it is worded, not where candidates come from -- so
     they fall through to the shared constants, which is what every other route
-    is running at anyway (findings 3.44).
+    is running at anyway (measurements 3.44).
 
     Args:
         state: The session after the latest message has been folded in.
@@ -211,7 +211,7 @@ def _defer(value: int | None) -> int:
 
     Read at call time rather than bound as a default, for the same reason
     `dense_weight` is: a constant bound at import cannot be patched by a sweep
-    (findings 3.27).
+    (measurements 3.27).
     """
     return ranking.MAX_DEFER_TURNS if value is None else value
 

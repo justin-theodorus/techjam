@@ -3,12 +3,12 @@
 The simulator builds every constraint it utters by cleaning one `features`
 bullet or one `details` value of the target's own catalog record, so a
 constraint is usually an exact substring of exactly one product. 89.9% of the
-225,684 phrases in this catalog belong to a single product (findings 3.3).
+225,684 phrases in this catalog belong to a single product (measurements 3.3).
 
 That makes phrase evidence very sharp and very brittle at once, so it is used
 only to reorder a slate that has already been chosen by the blend. A constraint
 the index has never seen contributes nothing and the slate is returned
-untouched, so this stage's own downside is zero (findings 3.23).
+untouched, so this stage's own downside is zero (measurements 3.23).
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def candidates(product: dict, corpus: str) -> list[str]:
 
     The material and color arms matter more than their rarity weight suggests:
     `hard_constraints[0]` is a bare material word in 76% of buying sessions
-    (findings 3.18), so dropping them costs 0.003 even though a phrase held by
+    (measurements 3.18), so dropping them costs 0.003 even though a phrase held by
     thousands of products can barely move a ranking on its own.
 
     Args:

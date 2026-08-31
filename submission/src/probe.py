@@ -90,7 +90,7 @@ ARM_DECAY = 0.35
 # A ratio rather than an absolute score, and that is the point. Coverage scales
 # with how talkative a bucket is, so an absolute threshold measures the bucket
 # rather than the decision -- which is how the first attempt at this died, with a
-# per-set optimum spread across the whole swept range (findings 3.37). This one
+# per-set optimum spread across the whole swept range (measurements 3.37). This one
 # is monotonic: 0.0 never falls back and costs 0.0100, 1.0 always does and costs
 # nothing, and every value between trades the two off smoothly.
 WILDCARD_FALLBACK_RATIO = 0.2
@@ -104,7 +104,7 @@ WILDCARD_FALLBACK_RATIO = 0.2
 # stopped answering. This retires every dimension already heard for one turn,
 # which is the difference between a better question and a different one.
 #
-# Measured on the frozen sets before shipping; see findings 3.47.
+# Measured on the frozen sets before shipping; see measurements 3.47.
 STAGNATION_ESCAPE = True
 
 # Whether the last turn of the protocol asks anything at all.
@@ -216,7 +216,7 @@ def specific(
     how much the customer has already said about it. An arm nobody can answer
     is worth nothing however discriminating it would be, and an arm everyone
     answers identically separates nothing however often it is offered
-    (findings 3.37).
+    (measurements 3.37).
 
     Falls back to the wildcard rather than to nothing: a turn that asks
     something unanswerable is worse than one that asks for anything, and only an
@@ -266,7 +266,7 @@ def specific(
         # `carried_arms` is what earlier visits established this person will
         # not answer, and it reads here rather than in `policy` on purpose:
         # a remembered dimension should stop a question, not open the session
-        # in the `boundary` stance (findings 3.46).
+        # in the `boundary` stance (measurements 3.46).
         if arm in state.refused or arm in state.carried_arms:
             continue
         if arm in avoid or not coverage.get(arm):
@@ -338,7 +338,7 @@ def options(
             continue
         # The catalog has to have taught this word for this attribute. Without
         # the check a lead line merely *classified* as size can be offered as
-        # one, and half of them are parcel dimensions (findings 3.38).
+        # one, and half of them are parcel dimensions (measurements 3.38).
         if catalog.taxonomy.vocabulary(value) != arm:
             continue
         seen.add(value)

@@ -8,7 +8,7 @@ classifier that is grounded in the same data the products are.
 
 Typing is bookkeeping, not filtering. No catalog dimension is populated densely
 enough to filter on: `Color` covers 4.9% of products, `Material` 4.1%, `Style`
-3.5% (findings 3.19), and a hard filter on a 4%-covered dimension discards 96%
+3.5% (measurements 3.19), and a hard filter on a 4%-covered dimension discards 96%
 of the pool on no evidence. What types buy is knowing which attributes a session
 has already heard about, which is what a targeted override, a probe policy and a
 grounded reply all need.
@@ -78,7 +78,7 @@ _BUDGET_RE = re.compile(
 )
 
 # Logistics, not description. `details` is 287 sub-keys dominated by shipping
-# metadata (findings 3.11), and counting a parcel's dimensions as a size the
+# metadata (measurements 3.11), and counting a parcel's dimensions as a size the
 # customer might care about makes every attribute look equally worth asking.
 _LOGISTICS = (
     "package", "shipping", "date first", "item model", "part number",
@@ -99,13 +99,13 @@ _KEY_RE = re.compile(r"^\s*([^:]{1,40}?)\s*:\s*(.+)$", re.DOTALL)
 # whitespace rather than a hyphen. This catalog spells attribute *names* that
 # way -- `Non-Polarized` 239 times, `No Closure closure` 192, `No-Tie Laces`,
 # `NO SHOW ATHLETIC SOCKS` -- so reading them as refusals inverts 0.3% of all
-# constraint text, 3 of which reach the public 200 (findings 3.31). The cost is
+# constraint text, 3 of which reach the public 200 (measurements 3.31). The cost is
 # that a customer who says "no wool" is not heard; the catalog says the
 # ambiguity is not worth it.
 # The master switch for reading refusals at all. Ships live: without it a
 # refusal is scored as evidence *for* what the customer declined. Ablating
 # `ranking.NEGATION_WEIGHT` alone measures only the penalty half, which is the
-# small half; this is what turns the whole mechanism off (findings 3.31).
+# small half; this is what turns the whole mechanism off (measurements 3.31).
 NEGATION = True
 
 _NEGATION_RE = re.compile(
@@ -125,7 +125,7 @@ MAX_VALUE_LENGTH = 30
 MIN_AGREEMENT = 0.7
 
 # The token vocabulary is a second, looser pass over the same `details` values,
-# and it exists only so free constraint text can be typed (findings 3.38). Its
+# and it exists only so free constraint text can be typed (measurements 3.38). Its
 # thresholds are separate from the ones above on purpose: `classify` matches a
 # value outright and can afford to be strict, while a single word carries less
 # evidence and needs a support floor instead.
@@ -329,7 +329,7 @@ class TaxonomyBuilder:
 
         # A product with bullets can always be described by one of them, and
         # half of this catalog's constraint text is exactly that: a plain
-        # bullet naming no attribute (findings 3.4).
+        # bullet naming no attribute (measurements 3.4).
         if has_features:
             named.add(FEATURE)
         for attribute in named:
@@ -379,7 +379,7 @@ def _candidate_tokens(value: object) -> list[str]:
     an outright-stated value should match outright. But free constraint text
     almost never restates a value verbatim -- a bullet reads "95% Cotton, 5%
     Spandex" where the vocabulary learned "cotton" -- so typing that text needs
-    the same evidence one level down (findings 3.38).
+    the same evidence one level down (measurements 3.38).
     """
     if not isinstance(value, str) or len(value) > MAX_TOKEN_VALUE_LENGTH:
         return []
