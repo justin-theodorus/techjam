@@ -10,7 +10,6 @@ from submission.src import dialogue
 from submission.src import llm
 from submission.src import memory
 from submission.src import orchestrate
-from submission.src import outcome_tracker
 from submission.src import policy as policy_module
 from submission.src import probe
 from submission.src import ranking
@@ -27,7 +26,6 @@ class Agent:
         self,
         catalog_path: str | Path = "data/catalog.jsonl",
         fast_path: bool = True,
-        persona_log_path: str | Path | None = None,
     ) -> None:
         """Builds every index once.
 
@@ -36,8 +34,6 @@ class Agent:
             fast_path: Whether message reading may use its template shortcut.
               Off, the agent runs on cue detection and catalog vocabulary alone,
               which is how that path is verified rather than assumed.
-            persona_log_path: Optional development-only JSONL outcome log.
-              Omitted during scoring, so the official path performs no writes.
         """
         # Order matters: the reranker decides whether the catalog keeps the
         # product text it needs, and neither is built again afterwards.
@@ -70,11 +66,6 @@ class Agent:
         self._user_profile: dict = {}
         self._scores: tuple[float, ...] = ()
         self._usage = llm.no_usage()
-        self._conversation_history: list[tuple[str, str]] = []
-        self._outcome_tracker = outcome_tracker.OutcomeTracker(
-            str(persona_log_path) if persona_log_path is not None else None
-        )
-        self._pending_persona: dict | None = None
 
     def reset(self, session_id: str, user_profile: dict) -> None:
         """Starts a session. No I/O and no indexing happen here.
@@ -104,8 +95,6 @@ class Agent:
         self._readiness = None
         self._usage = llm.no_usage()
         self.debug = {}
-        self._conversation_history = []
-        self._pending_persona = None
 
     def remember(self, shopper_id: str | None) -> None:
         """Names the shopper the next session belongs to.
@@ -140,12 +129,6 @@ class Agent:
                 self._state, self.catalog.taxonomy, self.catalog,
                 self._policy,
             )
-            candidate_count = len(self.catalog.pool(self._state.pool_keys))
-            self._resolve_pending(user_message, candidate_count)
-            persona_match = response.select_persona(
-                self._state, user_message, self._conversation_history,
-                candidate_count, self._user_profile,
-            )
             message = response.compose(
                 self._state, self._parsed, self._contenders,
                 self._head, len(recommendations), asked,
@@ -154,17 +137,6 @@ class Agent:
                 self._names(recommendations),
                 ranking.SLATE_SIZE,
             )
-
-            self._conversation_history.append((user_message, message))
-            self._pending_persona = {
-                "turn": turn,
-                "match": persona_match,
-                "message": message,
-                "constraints": list(self._state.constraints),
-                "pool": self._contenders,
-            }
-            self.debug["persona"] = persona_match.persona_type.value
-            self.debug["persona_conf"] = round(persona_match.confidence, 2)
         except Exception as error:
             # Deliberate isolation point. A caller that turns an exception into
             # an empty turn makes a crash cost a turn silently, so failure has
@@ -188,26 +160,6 @@ class Agent:
                 "completion_tokens": self._usage["completion_tokens"],
             },
         }
-
-    def _resolve_pending(self, user_message: str, candidate_count: int) -> None:
-        """Scores the previous persona using this turn's observable response."""
-        pending = self._pending_persona
-        if pending is None or self._session_id is None:
-            return
-        self._outcome_tracker.record_turn(
-            session_id=self._session_id,
-            turn=pending["turn"],
-            persona_match=pending["match"],
-            user_message=user_message,
-            llm_question=pending["message"],
-            constraints_before=pending["constraints"],
-            constraints_after=list(self._state.constraints),
-            user_rating_style=str(
-                self._user_profile.get("rating_style", "unknown")
-            ),
-            products_before=pending["pool"],
-            products_after=candidate_count,
-        )
 
     def _take_usage(self) -> dict:
         """Returns the model usage this turn spent, honest zeros without one.

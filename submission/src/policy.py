@@ -55,7 +55,7 @@ RECOVERY_TURNS = 0
 
 # Decision readiness is the self-evolving scalar exposed by the policy layer:
 # "how ready is this turn to commit to precision rather than keep discovering?"
-# It is not a user persona, and it is not read from `scenario_type`; it is
+# It is not read from `scenario_type`, which the agent never receives; it is
 # recomputed from the current session state on every turn.
 #
 # The update is a one-pole recurrence, D_t = 0.7 * current + 0.3 * D_{t-1}, so
