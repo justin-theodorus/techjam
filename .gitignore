@@ -1,10 +1,15 @@
 __pycache__/
 *.py[cod]
+.pytest_cache/
 .DS_Store
 .env
+*.log
 results.json
+runs/
 data/catalog.jsonl
 data/releases/
+# The packed catalog is downloaded from the organizer's release, not committed.
+catalog.jsonl.gz
 # Organizer-only code, private evaluation data, manifests, and build reports.
 organizer/
 secure/
@@ -15,7 +20,15 @@ docs/participant_release_checklist.md
 # Organizer-only pipeline tests.
 tests/test_5core_builder.py
 tests/test_organizer_pipeline.py
-*.log
-runs/
-CONSTRAINT_FOCUS_PLAN.md
-*.md
+# Working documents. The measured results they carry are published, in the
+# form a reader of this repository needs, as docs/measurements.md.
+findings.md
+solution.md
+plan.md
+demo.md
+problem_statement.md
+python-style-guide.md
+CLAUDE.md
+# Local agent and notebook scratch.
+.claude/
+notebooks/
