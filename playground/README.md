@@ -39,8 +39,8 @@ goal product to watch its rank move as the conversation discloses more.
 `harness/trace.py`, which clips every value at 40 characters. It carries
 `pool=329` but not which 329, and `alpha=0.6` but not what the blend did to any
 particular product. `ranking.ranked` computes a BM25 term, a popularity term
-and a negation penalty and returns only their sum; `rerank` computes phrase
-evidence and returns only the permutation.
+and a negation penalty and returns only their sum; `phrase_promoted` and
+`rerank` compute phrase evidence and return only the permutation.
 
 Rather than instrument the shipping path, `playground/rederive.py` **replays**
 it: every stage is a pure function of `(catalog, state)`, so calling them again

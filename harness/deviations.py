@@ -112,6 +112,15 @@ DEVIATIONS = (
         ),
     ),
     Deviation(
+        "phrase_pool",
+        "ranking.PHRASE_POOL",
+        "20 (live, so 0 is the deviation)",
+        tuple(
+            (f"{w:d}", {"ranking.PHRASE_POOL": w})
+            for w in (0, 10, 15, 25, 40)
+        ),
+    ),
+    Deviation(
         "recovery_restart",
         "routing.RECOVERY_RESTART",
         "0",

@@ -97,6 +97,9 @@ class SweepTableTest(unittest.TestCase):
             "routing.DISCOVERY_ALPHA": ranking.ALPHA,
             "routing.RECOVERY_RESTART": 0,
             "ranking.DIVERSITY": 0.0,
+            # Ships live, so its sweep reads backwards: the 0 point is the
+            # deviation and a negative delta there argues for keeping it.
+            "ranking.PHRASE_POOL": 20,
             "routing.DISCOVERY_DIVERSITY": None,
             "ranking.DIVERSITY_MAX_CONSTRAINTS": -1,
             "ranking.FLATNESS_GATE": 0.0,
